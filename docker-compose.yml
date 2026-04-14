@@ -1,0 +1,141 @@
+version: "3.9"
+
+x-common-env: &common-env
+  RABBIT_URL: amqp://guest:guest@rabbitmq:5672/
+  EXCHANGE_NAME: domain_events
+
+services:
+  # ───────────────────── infrastructure ─────────────────────
+  postgres:
+    image: postgres:15
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: poker
+      POSTGRES_PASSWORD: poker
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./init-databases.sql:/docker-entrypoint-initdb.d/init-databases.sql
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U poker"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  rabbitmq:
+    image: rabbitmq:3-management
+    restart: unless-stopped
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # ───────────────────── services ─────────────────────
+  room-service:
+    build:
+      context: .
+      dockerfile: services/room-service/Dockerfile
+    restart: unless-stopped
+    environment:
+      <<: *common-env
+      ROOM_DB: postgresql+asyncpg://poker:poker@postgres:5432/room_db
+    ports:
+      - "8001:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+
+  game-service:
+    build:
+      context: .
+      dockerfile: services/game-service/Dockerfile
+    restart: unless-stopped
+    environment:
+      <<: *common-env
+      GAME_DB: postgresql+asyncpg://poker:poker@postgres:5432/game_db
+      ROOM_SERVICE_URL: http://room-service:8000
+    ports:
+      - "8002:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      room-service:
+        condition: service_started
+
+  betting-service:
+    build:
+      context: .
+      dockerfile: services/betting-service/Dockerfile
+    restart: unless-stopped
+    environment:
+      <<: *common-env
+      BETTING_DB: postgresql+asyncpg://poker:poker@postgres:5432/betting_db
+    ports:
+      - "8003:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+
+  auth-service:
+    build:
+      context: .
+      dockerfile: services/auth-service/Dockerfile
+    restart: unless-stopped
+    environment:
+      AUTH_DB: postgresql+asyncpg://poker:poker@postgres:5432/auth_db
+      JWT_SECRET: change-me-in-production
+    ports:
+      - "8004:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  user-service:
+    build:
+      context: .
+      dockerfile: services/user-service/Dockerfile
+    restart: unless-stopped
+    environment:
+      <<: *common-env
+      USER_DB: postgresql+asyncpg://poker:poker@postgres:5432/user_db
+    ports:
+      - "8005:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+
+  gateway-service:
+    build:
+      context: .
+      dockerfile: services/gateway-service/Dockerfile
+    restart: unless-stopped
+    environment:
+      AUTH_SERVICE_URL: http://auth-service:8000
+      USER_SERVICE_URL: http://user-service:8000
+      ROOM_SERVICE_URL: http://room-service:8000
+      GAME_SERVICE_URL: http://game-service:8000
+      BETTING_SERVICE_URL: http://betting-service:8000
+    ports:
+      - "8000:8000"
+    depends_on:
+      - auth-service
+      - user-service
+      - room-service
+      - game-service
+      - betting-service
+
+volumes:
+  pgdata:
