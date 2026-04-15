@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..action_helpers import append_ledger_entry
 from ..mappers import game_to_response, round_to_response, payout_to_response
 from ...domain.constants import (
     DataKey, ErrorMessage, GameEventType, GameStatus, LedgerEntryType,
@@ -15,7 +16,7 @@ from ...domain.exceptions import (
     AlreadyAtShowdown, GameAlreadyExists, GameNotActive, NotFound,
     PayoutEmpty, PayoutExceedsPot, PayoutMismatch, RoundNotActive,
 )
-from ...domain.models import Game, HandLedgerEntry, OutboxEvent, Round, RoundPlayer, RoundPayout
+from ...domain.models import Game, OutboxEvent, Round, RoundPlayer, RoundPayout
 from ...domain.payout_validation import validate_payouts_against_side_pots
 from ...domain.schemas import (
     GameResponse, RoundResponse, RoundPlayerResponse, StartGame,
@@ -217,14 +218,14 @@ class GameCommandService:
                 else:
                     entry_type = LedgerEntryType.ANTE_POSTED
                     detail = {}
-                self.db.add(HandLedgerEntry(
-                    entry_id=str(uuid.uuid4()),
+                append_ledger_entry(
+                    self.db,
                     round_id=round_id,
                     entry_type=entry_type,
                     player_id=pp.player_id,
                     amount=pp.committed_this_hand,
                     detail=detail if detail else None,
-                ))
+                )
 
             event = build_event(
                 GameEventType.ROUND_STARTED,
@@ -341,8 +342,8 @@ class GameCommandService:
                     if rp is not None:
                         rp.stack_remaining += winner.amount
 
-                    self.db.add(HandLedgerEntry(
-                        entry_id=str(uuid.uuid4()),
+                    append_ledger_entry(
+                        self.db,
                         round_id=round_id,
                         entry_type=LedgerEntryType.PAYOUT_AWARDED,
                         player_id=winner.player_id,
@@ -351,7 +352,7 @@ class GameCommandService:
                             "pot_index": pot.pot_index,
                             "pot_type": pot.pot_type,
                         },
-                    ))
+                    )
 
             game_round.status = RoundStatus.COMPLETED
             game_round.street = Street.SHOWDOWN
@@ -359,13 +360,13 @@ class GameCommandService:
             game_round.is_action_closed = True
             game_round.completed_at = datetime.now(timezone.utc)
 
-            self.db.add(HandLedgerEntry(
-                entry_id=str(uuid.uuid4()),
+            append_ledger_entry(
+                self.db,
                 round_id=round_id,
                 entry_type=LedgerEntryType.ROUND_COMPLETED,
                 player_id=None,
                 amount=game_round.pot_amount,
-            ))
+            )
 
             if len(active_seats) >= 2:
                 dealer_seat, sb_seat, bb_seat = self._rotate_positions(
@@ -450,6 +451,7 @@ class GameCommandService:
                 game_round.minimum_raise_amount = game_round.big_blind_amount
                 game_round.acting_player_id = result.acting_player_id
                 game_round.is_action_closed = False
+                game_round.last_aggressor_seat = None
                 for rp in round_players:
                     rp.committed_this_street = 0
 

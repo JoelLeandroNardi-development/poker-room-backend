@@ -4,7 +4,9 @@ from sqlalchemy import (
 )
 from sqlalchemy.sql import func
 
-from .constants import GameStatus, RoundStatus, Street, TableName
+from .constants import (
+    BetAction, GameStatus, LedgerEntryType, RoundStatus, Street, TableName,
+)
 from ..infrastructure.db import Base
 from shared.core.outbox.model import make_outbox_event_model
 
@@ -24,9 +26,19 @@ class Game(Base):
 
     __table_args__ = (
         CheckConstraint("current_blind_level >= 1", name="ck_games_blind_level_positive"),
+        CheckConstraint(
+            f"status IN ({', '.join(repr(s.value) for s in GameStatus)})",
+            name="ck_games_status_enum",
+        ),
     )
 
 class Round(Base):
+    """Authoritative projection — mutable snapshot of the current hand.
+
+    Updated in-place by ``apply_action()``.  Together with
+    ``RoundPlayer``, this is the single source of truth for
+    'where is the hand right now?'
+    """
     __tablename__ = TableName.ROUNDS
 
     id = Column(Integer, primary_key=True)
@@ -48,6 +60,7 @@ class Round(Base):
     current_highest_bet = Column(Integer, nullable=False, default=0)
     minimum_raise_amount = Column(Integer, nullable=False, default=0)
     is_action_closed = Column(Boolean, nullable=False, default=False)
+    last_aggressor_seat = Column(Integer, nullable=True)
 
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     completed_at = Column(DateTime(timezone=True), nullable=True)
@@ -57,6 +70,14 @@ class Round(Base):
         CheckConstraint("pot_amount >= 0", name="ck_rounds_pot_non_negative"),
         CheckConstraint("current_highest_bet >= 0", name="ck_rounds_highest_bet_non_negative"),
         CheckConstraint("minimum_raise_amount >= 0", name="ck_rounds_min_raise_non_negative"),
+        CheckConstraint(
+            f"status IN ({', '.join(repr(s.value) for s in RoundStatus)})",
+            name="ck_rounds_status_enum",
+        ),
+        CheckConstraint(
+            f"street IN ({', '.join(repr(s.value) for s in Street)})",
+            name="ck_rounds_street_enum",
+        ),
     )
 
 
@@ -98,6 +119,11 @@ class RoundPayout(Base):
     )
 
 class Bet(Base):
+    """Action read model — denormalized record of each betting action.
+
+    Redundant with ``HandLedgerEntry`` but kept for backward
+    compatibility and fast per-round action history queries.
+    """
     __tablename__ = TableName.BETS
 
     id = Column(Integer, primary_key=True)
@@ -111,6 +137,10 @@ class Bet(Base):
     __table_args__ = (
         Index("ix_bets_round_created", "round_id", "created_at"),
         CheckConstraint("amount >= 0", name="ck_bets_amount_non_negative"),
+        CheckConstraint(
+            f"action IN ({', '.join(repr(a.value) for a in BetAction)})",
+            name="ck_bets_action_enum",
+        ),
     )
 
 class HandLedgerEntry(Base):
@@ -139,6 +169,10 @@ class HandLedgerEntry(Base):
     __table_args__ = (
         Index("ix_ledger_round_created", "round_id", "created_at"),
         Index("ix_ledger_round_original", "round_id", "original_entry_id"),
+        CheckConstraint(
+            f"entry_type IN ({', '.join(repr(e.value) for e in LedgerEntryType)})",
+            name="ck_ledger_entry_type_enum",
+        ),
     )
 
 

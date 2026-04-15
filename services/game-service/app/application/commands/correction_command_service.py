@@ -7,11 +7,11 @@ state is always derived by replaying the full ledger.
 
 from __future__ import annotations
 
-import uuid
 from datetime import datetime, timezone
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..action_helpers import append_ledger_entry
 from ...domain.constants import (
     CORRECTION_ENTRY_TYPES, DataKey, ErrorMessage, GameEventType,
     LedgerEntryType, RoundStatus,
@@ -83,19 +83,17 @@ class CorrectionCommandService:
         if original_entry_id in reversed_ids:
             raise EntryAlreadyReversed("This ledger entry has already been reversed")
 
-        entry = HandLedgerEntry(
-            entry_id=str(uuid.uuid4()),
-            round_id=round_id,
-            entry_type=LedgerEntryType.ACTION_REVERSED,
-            player_id=original.player_id,
-            amount=original.amount,
-            detail={"reason": reason} if reason else None,
-            original_entry_id=original_entry_id,
-            dealer_id=dealer_id,
-        )
-
         async with atomic(self.db):
-            self.db.add(entry)
+            entry = append_ledger_entry(
+                self.db,
+                round_id=round_id,
+                entry_type=LedgerEntryType.ACTION_REVERSED,
+                player_id=original.player_id,
+                amount=original.amount,
+                detail={"reason": reason} if reason else None,
+                original_entry_id=original_entry_id,
+                dealer_id=dealer_id,
+            )
 
             # Project reversal onto mutable state so Round/RoundPlayer
             # stays consistent with the ledger.
@@ -124,19 +122,16 @@ class CorrectionCommandService:
             filter_value=round_id, detail=ErrorMessage.ROUND_NOT_FOUND,
         )
 
-        entry = HandLedgerEntry(
-            entry_id=str(uuid.uuid4()),
-            round_id=round_id,
-            entry_type=LedgerEntryType.STACK_ADJUSTED,
-            player_id=player_id,
-            amount=amount,
-            detail={"reason": reason} if reason else None,
-            original_entry_id=None,
-            dealer_id=dealer_id,
-        )
-
         async with atomic(self.db):
-            self.db.add(entry)
+            entry = append_ledger_entry(
+                self.db,
+                round_id=round_id,
+                entry_type=LedgerEntryType.STACK_ADJUSTED,
+                player_id=player_id,
+                amount=amount,
+                detail={"reason": reason} if reason else None,
+                dealer_id=dealer_id,
+            )
             # Apply the adjustment to the live RoundPlayer row
             round_players = await get_round_players(self.db, round_id)
             rp = next((p for p in round_players if p.player_id == player_id), None)
@@ -159,22 +154,17 @@ class CorrectionCommandService:
         if game_round.status != RoundStatus.COMPLETED:
             raise RoundNotCompleted("Round must be completed before applying this correction")
 
-        entry = HandLedgerEntry(
-            entry_id=str(uuid.uuid4()),
-            round_id=round_id,
-            entry_type=LedgerEntryType.HAND_REOPENED,
-            player_id=None,
-            amount=None,
-            detail={"reason": reason} if reason else None,
-            original_entry_id=None,
-            dealer_id=dealer_id,
-        )
-
         async with atomic(self.db):
             game_round.status = RoundStatus.ACTIVE
             game_round.is_action_closed = False
             game_round.completed_at = None
-            self.db.add(entry)
+            entry = append_ledger_entry(
+                self.db,
+                round_id=round_id,
+                entry_type=LedgerEntryType.HAND_REOPENED,
+                dealer_id=dealer_id,
+                detail={"reason": reason} if reason else None,
+            )
             self._emit_correction_event(game_round, entry)
 
         await self.db.commit()
@@ -192,23 +182,20 @@ class CorrectionCommandService:
             filter_value=round_id, detail=ErrorMessage.ROUND_NOT_FOUND,
         )
 
-        entry = HandLedgerEntry(
-            entry_id=str(uuid.uuid4()),
-            round_id=round_id,
-            entry_type=LedgerEntryType.PAYOUT_CORRECTED,
-            player_id=new_player_id,
-            amount=new_amount,
-            detail={
-                "old_player_id": old_player_id,
-                "old_amount": old_amount,
-                "reason": reason,
-            },
-            original_entry_id=None,
-            dealer_id=dealer_id,
-        )
-
         async with atomic(self.db):
-            self.db.add(entry)
+            entry = append_ledger_entry(
+                self.db,
+                round_id=round_id,
+                entry_type=LedgerEntryType.PAYOUT_CORRECTED,
+                player_id=new_player_id,
+                amount=new_amount,
+                detail={
+                    "old_player_id": old_player_id,
+                    "old_amount": old_amount,
+                    "reason": reason,
+                },
+                dealer_id=dealer_id,
+            )
             round_players = await get_round_players(self.db, round_id)
             player_map = {rp.player_id: rp for rp in round_players}
 

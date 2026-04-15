@@ -24,12 +24,30 @@ Backend written in Python and mounted on top of Docker to manage a poker game ro
 - **Atomic transactions** – round settlement wrapped in DB transactions with outbox writes
 - **Side-pot calculator** – handles all-in scenarios with multiple pots and multi-winner splitting
 - **Room snapshot adapter** – room config captured at game start; mid-hand operations use local snapshot (no live HTTP calls)
-- **Unified action pipeline** – single `apply_action()` entry point validates, mutates player/round state, and advances turns atomically
+- **Unified action pipeline** – `transition_hand_state()` is a **pure** domain function that returns a structured `HandTransition`; `apply_action()` is a thin ORM adapter that writes the diff
 - **Domain exceptions** – pure domain error hierarchy; HTTP status codes mapped only at the API boundary
 - **Ledger mirroring** – every state mutation (blinds, bets, payouts) writes an immutable `HandLedgerEntry`
-- **DB invariants** – ForeignKey, UniqueConstraint, and CheckConstraint on all game-service models
+- **DB invariants** – ForeignKey, UniqueConstraint, CheckConstraint (including enum value constraints), and Index on all game-service models
+- **Anti-corruption layer** – `RoomConfigProvider` protocol + `HttpRoomConfigProvider` implementation; room-service data translated into game-native DTOs
 
 ### Poker engine (game-service)
+
+#### Data model roles
+
+Every table in game-service has a clearly defined role.  This prevents drift when adding features:
+
+| Table | Role | Description |
+|---|---|---|
+| **Game** | Authoritative | Current game lifecycle state (status, blind level, dealer positions) |
+| **Round** + **RoundPlayer** | Authoritative projection | Mutable snapshot of the current hand.  Updated in-place by each action via `apply_action()`.  This is the single source of truth for "where is the hand right now?" |
+| **HandLedgerEntry** | Immutable audit trail | Append-only log of every state change (blinds, bets, payouts, corrections).  Never updated or deleted.  Can rebuild hand state from scratch via `rebuild_hand_state()` |
+| **Bet** | Action read model | Denormalized record of each betting action for query convenience.  Redundant with the ledger — kept for backward compatibility and fast per-round action history queries |
+| **RoundPayout** | Settlement record | Records chip distribution at hand resolution.  Authoritative for "who won what" alongside the ledger |
+| **RoomSnapshot** / **RoomSnapshotPlayer** / **RoomSnapshotBlindLevel** | Anti-corruption snapshot | Local copy of room-service data captured at game start.  Insulates the hand engine from external service availability |
+
+> **Rule:** `Round` + `RoundPlayer` is what the engine reads during play.
+> `HandLedgerEntry` is what you replay for audits and corrections.
+> `Bet` may eventually be removed if the ledger fully covers query needs.
 
 The game-service owns the complete Texas Hold'em lifecycle:
 
@@ -83,7 +101,7 @@ python -m pytest tests/ -v
 python -m pytest tests/unit/ -v --cov=shared --cov=services --cov-report=term-missing
 ```
 
-**310 unit tests** covering:
+**323 unit tests** covering:
 
 | Area | Tests | Description |
 |---|---|---|
@@ -99,6 +117,7 @@ python -m pytest tests/unit/ -v --cov=shared --cov=services --cov-report=term-mi
 | Turn engine | 47 | Turn rotation, fold/check/call/raise/all-in flow |
 | Action pipeline | 13 | Unified apply_action: mutation, turn progression, validation |
 | Payout validation | 7 | Side-pot eligibility, overpay rejection, split pots |
+| Integration flows | 13 | Full betting rounds, street transitions, settlement, ledger rebuild, pure transitions |
 | Room repository | 11 | Room CRUD, player management queries |
 | User CRUD | 5 | User creation, listing, lookup |
 
@@ -133,7 +152,7 @@ Tests run automatically on push/PR to `main` and `develop` via GitHub Actions. T
 │   ├── game-service/        # Full poker engine (rounds, betting, settlement)
 │   └── gateway-service/     # HTTP gateway with connection-pooled clients
 ├── tests/
-│   ├── unit/                # 310 unit tests
+│   └── unit/                # 323 unit tests
 │   └── integration/         # Integration tests (placeholder)
 ├── docker-compose.yml
 ├── Makefile
@@ -141,6 +160,17 @@ Tests run automatically on push/PR to `main` and `develop` via GitHub Actions. T
 ```
 
 ## Changelog
+
+### Hand engine refinement (task 14)
+
+- **Explicit `last_aggressor_seat`** – new column on `Round`; `apply_action()` sets it on bet/raise/all-in, `advance_street` resets it to `None`; eliminates the fragile fallback that used `acting_player_id` as a proxy
+- **Pure state-transition core** – extracted `transition_hand_state()` as a **pure function** that takes immutable `HandContext` + action parameters and returns a structured `HandTransition` (player mutation + round mutation); `apply_action()` is now a thin ORM adapter that writes the diff
+- **Source-of-truth documentation** – README "Data model roles" table classifies every table as authoritative, projection, audit trail, read model, or anti-corruption snapshot
+- **Command-service boilerplate reduction** – new `action_helpers.py` with `record_bet_action()` (Bet + ledger + outbox in one call) and `append_ledger_entry()` (single-entry helper); all 3 command services refactored to use them
+- **Enum CheckConstraints** – `Game.status`, `Round.status`, `Round.street`, `Bet.action`, and `HandLedgerEntry.entry_type` now constrained to valid enum values at the DB level
+- **Anti-corruption layer formalized** – `RoomConfigProvider` protocol in the domain layer; `HttpRoomConfigProvider` class in infrastructure implementing fetch_live / save_snapshot / load_snapshot
+- **13 new integration tests** – `test_integration_flows.py`: full betting rounds, aggressor tracking, street transitions, side-pot settlement, folded-player rejection, pure `transition_hand_state` immutability, ledger rebuild with reversals and payout corrections
+- **Bet table evaluation** – documented in Pending section: kept as read model, flagged for potential removal when ledger coverage is sufficient
 
 ### Architecture overhaul (task 13)
 
@@ -166,6 +196,7 @@ Tests run automatically on push/PR to `main` and `develop` via GitHub Actions. T
 
 ## Pending / future work
 
+- [ ] **Bet table evaluation** – The `Bet` table is now redundant with `HandLedgerEntry` for recording actions.  It exists as a read model for fast per-round action queries (e.g. "show me all bets this round").  If the ledger + round projection fully covers query needs, `Bet` may be removed.  Currently kept for backward compat and explicit action history UI support.
 - [ ] Integration tests – the `tests/integration/` directory is a placeholder; needs real cross-service tests with PostgreSQL
 - [ ] Hand evaluation – no poker hand ranking engine yet (e.g. determining flush vs. straight)
 - [ ] WebSocket support – real-time game state push to connected players

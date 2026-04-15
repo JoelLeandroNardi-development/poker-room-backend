@@ -1,8 +1,9 @@
 """Infrastructure implementation for fetching / snapshotting room config.
 
-* ``fetch_room_config_http``  — live HTTP call to room-service
-* ``save_room_snapshot``      — persist a RoomConfig into game-service DB
-* ``load_room_snapshot``      — reload a RoomConfig from the local snapshot
+Implements ``RoomConfigProvider`` from the domain's anti-corruption layer:
+
+* ``HttpRoomConfigProvider`` — class implementing the full protocol
+* Module-level functions preserved for backward compatibility
 """
 
 from __future__ import annotations
@@ -15,7 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..domain.exceptions import NotFound
 from ..domain.models import RoomSnapshot, RoomSnapshotBlindLevel, RoomSnapshotPlayer
-from ..domain.room_adapter import BlindLevelConfig, PlayerConfig, RoomConfig
+from ..domain.room_adapter import BlindLevelConfig, PlayerConfig, RoomConfig, RoomConfigProvider
 
 ROOM_SERVICE_URL = os.getenv("ROOM_SERVICE_URL", "http://room-service:8000")
 
@@ -129,3 +130,25 @@ async def load_room_snapshot(db: AsyncSession, game_id: str) -> RoomConfig:
         players=players,
         blind_levels=blind_levels,
     )
+
+
+# ── Protocol-conforming provider class ───────────────────────────────
+
+class HttpRoomConfigProvider:
+    """Implements ``RoomConfigProvider`` using HTTP + DB snapshots.
+
+    Delegates to the module-level functions above.  Can be injected
+    into services that declare a dependency on ``RoomConfigProvider``.
+    """
+
+    def __init__(self, db: AsyncSession) -> None:
+        self._db = db
+
+    async def fetch_live(self, room_id: str) -> RoomConfig:
+        return await fetch_room_config_http(room_id)
+
+    async def save_snapshot(self, game_id: str, config: RoomConfig) -> None:
+        await save_room_snapshot(self._db, game_id, config)
+
+    async def load_snapshot(self, game_id: str) -> RoomConfig:
+        return await load_room_snapshot(self._db, game_id)
