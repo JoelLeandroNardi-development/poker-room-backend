@@ -23,6 +23,11 @@ Backend written in Python and mounted on top of Docker to manage a poker game ro
 - **Shared package** – cross-cutting DB, messaging, and schema helpers in `shared/`
 - **Atomic transactions** – round settlement wrapped in DB transactions with outbox writes
 - **Side-pot calculator** – handles all-in scenarios with multiple pots and multi-winner splitting
+- **Room snapshot adapter** – room config captured at game start; mid-hand operations use local snapshot (no live HTTP calls)
+- **Unified action pipeline** – single `apply_action()` entry point validates, mutates player/round state, and advances turns atomically
+- **Domain exceptions** – pure domain error hierarchy; HTTP status codes mapped only at the API boundary
+- **Ledger mirroring** – every state mutation (blinds, bets, payouts) writes an immutable `HandLedgerEntry`
+- **DB invariants** – ForeignKey, UniqueConstraint, and CheckConstraint on all game-service models
 
 ### Poker engine (game-service)
 
@@ -34,6 +39,8 @@ The game-service owns the complete Texas Hold'em lifecycle:
 - **Bet validator** – enforces min-raise, pot-limit, and no-limit rules
 - **Side-pot calculator** – splits pots correctly when players are all-in at different stack levels
 - **Settlement** – atomic multi-winner settlement with chip distribution and hand ledger recording
+- **Payout validation** – submitted payouts validated against computed side-pot structure (eligible winners + amounts)
+- **Dealer corrections** – projection-safe: reverse action, adjust stack, reopen hand, correct payout (all mirror to ledger + mutable state)
 
 ## Quick start
 
@@ -76,7 +83,7 @@ python -m pytest tests/ -v
 python -m pytest tests/unit/ -v --cov=shared --cov=services --cov-report=term-missing
 ```
 
-**290 unit tests** covering:
+**310 unit tests** covering:
 
 | Area | Tests | Description |
 |---|---|---|
@@ -90,6 +97,8 @@ python -m pytest tests/unit/ -v --cov=shared --cov=services --cov-report=term-mi
 | Side pots | 25 | All-in side-pot calculation, complex multi-pot scenarios |
 | Street progression | 47 | Street advancement, skip logic, showdown triggers |
 | Turn engine | 47 | Turn rotation, fold/check/call/raise/all-in flow |
+| Action pipeline | 13 | Unified apply_action: mutation, turn progression, validation |
+| Payout validation | 7 | Side-pot eligibility, overpay rejection, split pots |
 | Room repository | 11 | Room CRUD, player management queries |
 | User CRUD | 5 | User creation, listing, lookup |
 
@@ -124,7 +133,7 @@ Tests run automatically on push/PR to `main` and `develop` via GitHub Actions. T
 │   ├── game-service/        # Full poker engine (rounds, betting, settlement)
 │   └── gateway-service/     # HTTP gateway with connection-pooled clients
 ├── tests/
-│   ├── unit/                # 290 unit tests
+│   ├── unit/                # 310 unit tests
 │   └── integration/         # Integration tests (placeholder)
 ├── docker-compose.yml
 ├── Makefile
@@ -132,6 +141,18 @@ Tests run automatically on push/PR to `main` and `develop` via GitHub Actions. T
 ```
 
 ## Changelog
+
+### Architecture overhaul (task 13)
+
+- **Domain exceptions** – pure exception hierarchy (`DomainError` → specific errors); replaced all `HTTPException` usage in domain/application layers; `@exception_handler` maps back to HTTP at API boundary
+- **DB invariants** – added `ForeignKey`, `UniqueConstraint`, `CheckConstraint`, and composite `Index` across all game-service models (Round, RoundPlayer, RoundPayout, Bet, HandLedgerEntry)
+- **Room snapshot adapter** – new `RoomSnapshot`, `RoomSnapshotPlayer`, `RoomSnapshotBlindLevel` models; room config captured at `start_game`; `start_round`, `resolve_hand`, `advance_blinds` read from local snapshot (no live HTTP calls to room-service)
+- **Unified action pipeline** – `apply_action()` in `domain/action_pipeline.py`: single entry point that validates via `validate_bet`, mutates ORM models (stack, commitments, fold/all-in flags, pot, highest bet), and computes next-to-act via `turn_engine`
+- **Ledger mirroring** – every forced bet (blind/ante), player action (bet/fold/check/call/raise/all-in), payout, and round completion writes an immutable `HandLedgerEntry`
+- **Side-pot validation** – `payout_validation.py` validates dealer-submitted payouts against `calculate_side_pots()` (computed pot amounts + eligible winners)
+- **Corrections projection-safe** – `reverse_action` now projects reversal onto mutable `Round`/`RoundPlayer` state (pot, stack, commitments) alongside the ledger entry
+- **20 new tests** – `test_action_pipeline.py` (13 tests) and `test_payout_validation.py` (7 tests)
+- **Fixed latent bug** – restored missing `ErrorMessage` imports in command services
 
 ### Latest cleanup (task 12)
 

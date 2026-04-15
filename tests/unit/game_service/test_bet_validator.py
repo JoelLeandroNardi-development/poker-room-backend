@@ -93,13 +93,13 @@ class TestRoundGuards:
         ctx = _make_ctx(HandContext, PlayerState, status="COMPLETED")
         with pytest.raises(Exception) as exc_info:
             validate_bet(ctx, "p1", "FOLD", 0)
-        assert ErrorMessage.ROUND_NOT_ACTIVE in str(exc_info.value.detail)
+        assert ErrorMessage.ROUND_NOT_ACTIVE in str(exc_info.value.message)
 
     def test_action_closed(self, validate_bet, HandContext, PlayerState, ErrorMessage):
         ctx = _make_ctx(HandContext, PlayerState, is_action_closed=True)
         with pytest.raises(Exception) as exc_info:
             validate_bet(ctx, "p1", "FOLD", 0)
-        assert ErrorMessage.ACTION_CLOSED in str(exc_info.value.detail)
+        assert ErrorMessage.ACTION_CLOSED in str(exc_info.value.message)
 
 
 # ================================================================
@@ -112,28 +112,28 @@ class TestPlayerGuards:
         ctx = _make_ctx(HandContext, PlayerState)
         with pytest.raises(Exception) as exc_info:
             validate_bet(ctx, "unknown_player", "FOLD", 0)
-        assert ErrorMessage.PLAYER_NOT_IN_HAND in str(exc_info.value.detail)
+        assert ErrorMessage.PLAYER_NOT_IN_HAND in str(exc_info.value.message)
 
     def test_player_inactive(self, validate_bet, HandContext, PlayerState, ErrorMessage):
         p = _make_player(PlayerState, is_active_in_hand=False)
         ctx = _make_ctx(HandContext, PlayerState, players=[p])
         with pytest.raises(Exception) as exc_info:
             validate_bet(ctx, "p1", "FOLD", 0)
-        assert ErrorMessage.PLAYER_NOT_IN_HAND in str(exc_info.value.detail)
+        assert ErrorMessage.PLAYER_NOT_IN_HAND in str(exc_info.value.message)
 
     def test_player_already_folded(self, validate_bet, HandContext, PlayerState, ErrorMessage):
         p = _make_player(PlayerState, has_folded=True)
         ctx = _make_ctx(HandContext, PlayerState, players=[p])
         with pytest.raises(Exception) as exc_info:
             validate_bet(ctx, "p1", "CHECK", 0)
-        assert ErrorMessage.PLAYER_ALREADY_FOLDED in str(exc_info.value.detail)
+        assert ErrorMessage.PLAYER_ALREADY_FOLDED in str(exc_info.value.message)
 
     def test_player_already_all_in(self, validate_bet, HandContext, PlayerState, ErrorMessage):
         p = _make_player(PlayerState, is_all_in=True, stack_remaining=0)
         ctx = _make_ctx(HandContext, PlayerState, players=[p])
         with pytest.raises(Exception) as exc_info:
             validate_bet(ctx, "p1", "CHECK", 0)
-        assert ErrorMessage.PLAYER_ALL_IN in str(exc_info.value.detail)
+        assert ErrorMessage.PLAYER_ALL_IN in str(exc_info.value.message)
 
 
 # ================================================================
@@ -148,7 +148,7 @@ class TestTurnOrder:
         ctx = _make_ctx(HandContext, PlayerState, players=[p1, p2], acting_player_id="p1")
         with pytest.raises(Exception) as exc_info:
             validate_bet(ctx, "p2", "FOLD", 0)
-        assert ErrorMessage.NOT_YOUR_TURN in str(exc_info.value.detail)
+        assert ErrorMessage.NOT_YOUR_TURN in str(exc_info.value.message)
 
     def test_correct_turn_succeeds(self, validate_bet, HandContext, PlayerState, BetAction):
         p1 = _make_player(PlayerState, player_id="p1", seat_number=1)
@@ -203,7 +203,7 @@ class TestCheck:
         ctx = _make_ctx(HandContext, PlayerState, current_highest_bet=50)
         with pytest.raises(Exception) as exc_info:
             validate_bet(ctx, "p1", "CHECK", 0)
-        assert ErrorMessage.CHECK_NOT_ALLOWED in str(exc_info.value.detail)
+        assert ErrorMessage.CHECK_NOT_ALLOWED in str(exc_info.value.message)
 
 
 # ================================================================
@@ -223,7 +223,7 @@ class TestCall:
         ctx = _make_ctx(HandContext, PlayerState, current_highest_bet=0)
         with pytest.raises(Exception) as exc_info:
             validate_bet(ctx, "p1", "CALL", 0)
-        assert ErrorMessage.CALL_NOT_ALLOWED in str(exc_info.value.detail)
+        assert ErrorMessage.CALL_NOT_ALLOWED in str(exc_info.value.message)
 
     def test_call_all_in_when_stack_insufficient(self, validate_bet, HandContext, PlayerState, BetAction):
         p = _make_player(PlayerState, stack_remaining=10, committed_this_street=0)
@@ -256,13 +256,13 @@ class TestBet:
         ctx = _make_ctx(HandContext, PlayerState, current_highest_bet=50)
         with pytest.raises(Exception) as exc_info:
             validate_bet(ctx, "p1", "BET", 100)
-        assert ErrorMessage.BET_NOT_ALLOWED in str(exc_info.value.detail)
+        assert ErrorMessage.BET_NOT_ALLOWED in str(exc_info.value.message)
 
     def test_bet_below_minimum_rejected(self, validate_bet, HandContext, PlayerState, ErrorMessage):
         ctx = _make_ctx(HandContext, PlayerState, current_highest_bet=0, minimum_raise_amount=20)
         with pytest.raises(Exception) as exc_info:
             validate_bet(ctx, "p1", "BET", 10)
-        assert ErrorMessage.RAISE_BELOW_MINIMUM in str(exc_info.value.detail)
+        assert "below the minimum" in str(exc_info.value.message)
 
     def test_bet_below_minimum_allowed_if_all_in(self, validate_bet, HandContext, PlayerState, BetAction):
         p = _make_player(PlayerState, stack_remaining=10)
@@ -275,14 +275,14 @@ class TestBet:
         ctx = _make_ctx(HandContext, PlayerState, current_highest_bet=0)
         with pytest.raises(Exception) as exc_info:
             validate_bet(ctx, "p1", "BET", 0)
-        assert ErrorMessage.RAISE_AMOUNT_TOO_LOW in str(exc_info.value.detail)
+        assert "must be greater than 0" in str(exc_info.value.message)
 
     def test_bet_exceeds_stack_rejected(self, validate_bet, HandContext, PlayerState, ErrorMessage):
         p = _make_player(PlayerState, stack_remaining=100)
         ctx = _make_ctx(HandContext, PlayerState, players=[p], current_highest_bet=0)
         with pytest.raises(Exception) as exc_info:
             validate_bet(ctx, "p1", "BET", 200)
-        assert ErrorMessage.AMOUNT_EXCEEDS_STACK in str(exc_info.value.detail)
+        assert ErrorMessage.AMOUNT_EXCEEDS_STACK in str(exc_info.value.message)
 
     def test_bet_equal_to_stack_is_all_in(self, validate_bet, HandContext, PlayerState, BetAction):
         p = _make_player(PlayerState, stack_remaining=100)
@@ -312,7 +312,7 @@ class TestRaise:
         ctx = _make_ctx(HandContext, PlayerState, current_highest_bet=0)
         with pytest.raises(Exception) as exc_info:
             validate_bet(ctx, "p1", "RAISE", 100)
-        assert ErrorMessage.RAISE_NOT_ALLOWED in str(exc_info.value.detail)
+        assert ErrorMessage.RAISE_NOT_ALLOWED in str(exc_info.value.message)
 
     def test_raise_below_minimum_rejected(self, validate_bet, HandContext, PlayerState, ErrorMessage):
         # highest bet = 50, raise to 55 => increment = 5, min = 20 => rejected
@@ -320,7 +320,7 @@ class TestRaise:
         ctx = _make_ctx(HandContext, PlayerState, players=[p], current_highest_bet=50, minimum_raise_amount=20)
         with pytest.raises(Exception) as exc_info:
             validate_bet(ctx, "p1", "RAISE", 55)
-        assert ErrorMessage.RAISE_BELOW_MINIMUM in str(exc_info.value.detail)
+        assert ErrorMessage.RAISE_BELOW_MINIMUM in str(exc_info.value.message)
 
     def test_raise_under_minimum_allowed_if_all_in(self, validate_bet, HandContext, PlayerState, BetAction):
         # highest bet = 50, player has 60 chips, committed 0, raise to 60
@@ -336,7 +336,7 @@ class TestRaise:
         ctx = _make_ctx(HandContext, PlayerState, players=[p], current_highest_bet=20, minimum_raise_amount=20)
         with pytest.raises(Exception) as exc_info:
             validate_bet(ctx, "p1", "RAISE", 200)
-        assert ErrorMessage.AMOUNT_EXCEEDS_STACK in str(exc_info.value.detail)
+        assert "exceeds remaining stack" in str(exc_info.value.message)
 
     def test_raise_zero_additional_rejected(self, validate_bet, HandContext, PlayerState, ErrorMessage):
         # committed 50, raise to 50 => additional = 0 => rejected
@@ -344,7 +344,7 @@ class TestRaise:
         ctx = _make_ctx(HandContext, PlayerState, players=[p], current_highest_bet=50, minimum_raise_amount=20)
         with pytest.raises(Exception) as exc_info:
             validate_bet(ctx, "p1", "RAISE", 50)
-        assert ErrorMessage.RAISE_AMOUNT_TOO_LOW in str(exc_info.value.detail)
+        assert "must be greater than 0" in str(exc_info.value.message)
 
     def test_raise_equal_to_stack_is_all_in(self, validate_bet, HandContext, PlayerState, BetAction):
         # stack=100, committed=0, highest=50, raise to 100 => additional=100=stack => ALL_IN
@@ -379,7 +379,7 @@ class TestAllIn:
         ctx = _make_ctx(HandContext, PlayerState, players=[p])
         with pytest.raises(Exception) as exc_info:
             validate_bet(ctx, "p1", "ALL_IN", 0)
-        assert ErrorMessage.PLAYER_ALL_IN in str(exc_info.value.detail)
+        assert ErrorMessage.PLAYER_ALL_IN in str(exc_info.value.message)
 
     def test_all_in_as_short_call(self, validate_bet, HandContext, PlayerState, BetAction):
         # Player has 30 chips, bet to call is 100. ALL_IN for 30.
@@ -400,7 +400,7 @@ class TestInvalidAction:
         ctx = _make_ctx(HandContext, PlayerState)
         with pytest.raises(Exception) as exc_info:
             validate_bet(ctx, "p1", "BLUFF", 0)
-        assert ErrorMessage.INVALID_ACTION in str(exc_info.value.detail)
+        assert ErrorMessage.INVALID_ACTION in str(exc_info.value.message)
 
 
 # ================================================================

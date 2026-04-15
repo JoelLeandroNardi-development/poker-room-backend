@@ -10,7 +10,6 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timezone
 
-from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...domain.constants import (
@@ -18,12 +17,15 @@ from ...domain.constants import (
     LedgerEntryType, RoundStatus,
 )
 from ...domain.events import build_event
+from ...domain.exceptions import (
+    CannotReverseCorrection, EntryAlreadyReversed, LedgerEntryNotFound,
+    RoundAlreadyActive, RoundNotCompleted,
+)
 from ...domain.hand_ledger import LedgerRow, rebuild_hand_state, HandState
 from ...domain.models import HandLedgerEntry, OutboxEvent, Round, RoundPlayer
 from ...infrastructure.repository import (
-    get_ledger_entries, get_ledger_entry_by_id, get_round_players,
+    get_ledger_entries, get_ledger_entry_by_id, get_round_players, fetch_or_raise,
 )
-from shared.core.db.crud import fetch_or_404
 from shared.core.db.session import atomic
 from shared.core.outbox.helpers import add_outbox_event
 
@@ -60,18 +62,18 @@ class CorrectionCommandService:
         self, round_id: str, original_entry_id: str, *, dealer_id: str | None = None, reason: str | None = None,
     ) -> HandLedgerEntry:
         """Reverse a previous bet / blind / ante entry."""
-        game_round = await fetch_or_404(
+        game_round = await fetch_or_raise(
             self.db, Round, filter_column=Round.round_id,
             filter_value=round_id, detail=ErrorMessage.ROUND_NOT_FOUND,
         )
 
         original = await get_ledger_entry_by_id(self.db, original_entry_id)
         if original is None or original.round_id != round_id:
-            raise HTTPException(status_code=404, detail=ErrorMessage.LEDGER_ENTRY_NOT_FOUND)
+            raise LedgerEntryNotFound("Ledger entry not found")
 
         # Guard: cannot reverse a correction entry or an already-reversed entry
         if original.entry_type in CORRECTION_ENTRY_TYPES:
-            raise HTTPException(status_code=400, detail="Cannot reverse a correction entry")
+            raise CannotReverseCorrection("Cannot reverse a correction entry")
 
         existing_entries = await get_ledger_entries(self.db, round_id)
         reversed_ids = {
@@ -79,7 +81,7 @@ class CorrectionCommandService:
             if e.entry_type == LedgerEntryType.ACTION_REVERSED
         }
         if original_entry_id in reversed_ids:
-            raise HTTPException(status_code=409, detail=ErrorMessage.ENTRY_ALREADY_REVERSED)
+            raise EntryAlreadyReversed("This ledger entry has already been reversed")
 
         entry = HandLedgerEntry(
             entry_id=str(uuid.uuid4()),
@@ -94,6 +96,19 @@ class CorrectionCommandService:
 
         async with atomic(self.db):
             self.db.add(entry)
+
+            # Project reversal onto mutable state so Round/RoundPlayer
+            # stays consistent with the ledger.
+            reversed_amount = original.amount or 0
+            if original.player_id and reversed_amount > 0:
+                round_players = await get_round_players(self.db, round_id)
+                rp = next((p for p in round_players if p.player_id == original.player_id), None)
+                if rp is not None:
+                    rp.stack_remaining += reversed_amount
+                    rp.committed_this_street = max(0, rp.committed_this_street - reversed_amount)
+                    rp.committed_this_hand = max(0, rp.committed_this_hand - reversed_amount)
+                game_round.pot_amount = max(0, game_round.pot_amount - reversed_amount)
+
             self._emit_correction_event(game_round, entry)
 
         await self.db.commit()
@@ -104,7 +119,7 @@ class CorrectionCommandService:
         *, dealer_id: str | None = None, reason: str | None = None,
     ) -> HandLedgerEntry:
         """Apply an ad-hoc chip adjustment to a player's stack."""
-        game_round = await fetch_or_404(
+        game_round = await fetch_or_raise(
             self.db, Round, filter_column=Round.round_id,
             filter_value=round_id, detail=ErrorMessage.ROUND_NOT_FOUND,
         )
@@ -136,13 +151,13 @@ class CorrectionCommandService:
         self, round_id: str, *, dealer_id: str | None = None, reason: str | None = None,
     ) -> HandLedgerEntry:
         """Re-open a completed round so the dealer can make corrections."""
-        game_round = await fetch_or_404(
+        game_round = await fetch_or_raise(
             self.db, Round, filter_column=Round.round_id,
             filter_value=round_id, detail=ErrorMessage.ROUND_NOT_FOUND,
         )
 
         if game_round.status != RoundStatus.COMPLETED:
-            raise HTTPException(status_code=400, detail=ErrorMessage.ROUND_NOT_COMPLETED)
+            raise RoundNotCompleted("Round must be completed before applying this correction")
 
         entry = HandLedgerEntry(
             entry_id=str(uuid.uuid4()),
@@ -172,7 +187,7 @@ class CorrectionCommandService:
         *, dealer_id: str | None = None, reason: str | None = None,
     ) -> HandLedgerEntry:
         """Correct a mis-assigned payout: debit old winner, credit new."""
-        game_round = await fetch_or_404(
+        game_round = await fetch_or_raise(
             self.db, Round, filter_column=Round.round_id,
             filter_value=round_id, detail=ErrorMessage.ROUND_NOT_FOUND,
         )

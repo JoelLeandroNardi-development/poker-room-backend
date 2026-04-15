@@ -8,16 +8,15 @@ from ...domain.constants import ErrorMessage, GameStatus
 from ...domain.models import Game, Round
 from ...domain.schemas import GameResponse, RoundResponse
 from ...infrastructure.repository import (
-    get_rounds_for_game, get_active_round, get_round_players, get_round_payouts,
+    get_rounds_for_game, get_active_round, get_round_players, get_round_payouts, fetch_or_raise,
 )
-from shared.core.db.crud import fetch_or_404
 
 class GameQueryService:
     def __init__(self, db: AsyncSession):
         self.db = db
 
     async def get_game(self, game_id: str) -> GameResponse:
-        game = await fetch_or_404(
+        game = await fetch_or_raise(
             self.db, Game,
             filter_column=Game.game_id,
             filter_value=game_id,
@@ -45,7 +44,7 @@ class GameQueryService:
         return result
 
     async def get_round(self, round_id: str) -> RoundResponse:
-        game_round = await fetch_or_404(
+        game_round = await fetch_or_raise(
             self.db, Round,
             filter_column=Round.round_id,
             filter_value=round_id,

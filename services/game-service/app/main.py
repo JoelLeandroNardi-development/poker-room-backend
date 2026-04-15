@@ -3,8 +3,11 @@ from __future__ import annotations
 import asyncio
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
+from fastapi.responses import JSONResponse
+from starlette.requests import Request
 
 from .api.routes import router
+from .domain.exceptions import DomainError, NotFound, PlayerNotInHand
 from .infrastructure.config import SERVICE_LOG_PREFIX, SERVICE_NAME
 from .infrastructure.messaging import publisher, RABBIT_URL, EXCHANGE_NAME
 from .infrastructure.outbox_worker import run_outbox_forever, outbox_stats
@@ -40,6 +43,18 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Game Service", lifespan=lifespan)
 app.include_router(router)
+
+
+@app.exception_handler(DomainError)
+async def _domain_error_handler(_request: Request, exc: DomainError) -> JSONResponse:
+    """Map domain exceptions to HTTP status codes at the API boundary."""
+    if isinstance(exc, NotFound):
+        status = 404
+    elif isinstance(exc, PlayerNotInHand) and "not in this hand" in exc.message:
+        status = 404
+    else:
+        status = 400
+    return JSONResponse(status_code=status, content={"detail": exc.message})
 
 @app.get("/health", response_model=dict[str, object])
 async def health():

@@ -99,6 +99,9 @@ class TableName(StrEnum):
     ROUND_PAYOUTS = "round_payouts"
     BETS = "bets"
     HAND_LEDGER_ENTRIES = "hand_ledger_entries"
+    ROOM_SNAPSHOTS = "room_snapshots"
+    ROOM_SNAPSHOT_PLAYERS = "room_snapshot_players"
+    ROOM_SNAPSHOT_BLIND_LEVELS = "room_snapshot_blind_levels"
 
 class ErrorMessage(StrEnum):
     GAME_NOT_FOUND = "Game not found"

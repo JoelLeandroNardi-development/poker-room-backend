@@ -4,7 +4,17 @@ from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..domain.constants import GameStatus, RoundStatus
+from ..domain.exceptions import NotFound
 from ..domain.models import Bet, Game, Round, RoundPlayer, RoundPayout, HandLedgerEntry
+
+
+async def fetch_or_raise(db: AsyncSession, model, *, filter_column, filter_value, detail: str = "Not found"):
+    """Like shared fetch_or_404 but raises domain NotFound instead of HTTPException."""
+    res = await db.execute(select(model).where(filter_column == filter_value))
+    obj = res.scalar_one_or_none()
+    if obj is None:
+        raise NotFound(detail)
+    return obj
 
 async def get_active_game_for_room(db: AsyncSession, room_id: str) -> Game | None:
     res = await db.execute(

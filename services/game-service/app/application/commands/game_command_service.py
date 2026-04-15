@@ -1,20 +1,22 @@
 from __future__ import annotations
 
-import os
 import uuid
 from datetime import datetime, timezone
 
-import httpx
-from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..mappers import game_to_response, round_to_response, payout_to_response
 from ...domain.constants import (
-    DataKey, ErrorMessage, GameEventType, GameStatus, RoundStatus, Street,
-    StreetAdvanceAction,
+    DataKey, ErrorMessage, GameEventType, GameStatus, LedgerEntryType,
+    RoundStatus, Street, StreetAdvanceAction,
 )
 from ...domain.events import build_event
-from ...domain.models import Game, OutboxEvent, Round, RoundPlayer, RoundPayout
+from ...domain.exceptions import (
+    AlreadyAtShowdown, GameAlreadyExists, GameNotActive, NotFound,
+    PayoutEmpty, PayoutExceedsPot, PayoutMismatch, RoundNotActive,
+)
+from ...domain.models import Game, HandLedgerEntry, OutboxEvent, Round, RoundPlayer, RoundPayout
+from ...domain.payout_validation import validate_payouts_against_side_pots
 from ...domain.schemas import (
     GameResponse, RoundResponse, RoundPlayerResponse, StartGame,
     DeclareWinner, DeclareWinnerResponse,
@@ -25,46 +27,36 @@ from ...domain.blind_posting import SeatPlayer, post_blinds_and_antes
 from ...domain.street_progression import PlayerSeat, evaluate_street_end
 from ...infrastructure.repository import (
     count_rounds, get_active_game_for_room, get_active_round,
-    get_round_players, get_round_payouts,
+    get_round_players, get_round_payouts, fetch_or_raise,
+)
+from ...infrastructure.room_config import (
+    fetch_room_config_http, load_room_snapshot, save_room_snapshot,
 )
 from shared.core.outbox.helpers import add_outbox_event
-from shared.core.db.crud import fetch_or_404
 from shared.core.db.session import atomic
-
-ROOM_SERVICE_URL = os.getenv("ROOM_SERVICE_URL", "http://room-service:8000")
 
 class GameCommandService:
     def __init__(self, db: AsyncSession):
         self.db = db
 
-    async def _fetch_room_config(self, room_id: str) -> dict:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            resp = await client.get(f"{ROOM_SERVICE_URL}/rooms/{room_id}")
-            if resp.status_code == 404:
-                raise HTTPException(status_code=404, detail="Room not found")
-            resp.raise_for_status()
-            return resp.json()
-
     async def start_game(self, data: StartGame) -> GameResponse:
         existing = await get_active_game_for_room(self.db, data.room_id)
         if existing:
-            raise HTTPException(status_code=409, detail=ErrorMessage.GAME_ALREADY_EXISTS)
+            raise GameAlreadyExists("An active game already exists for this room")
 
-        room_config = await self._fetch_room_config(data.room_id)
-        room_data = room_config["room"]
-        blind_levels = room_config.get("blind_levels", [])
-        players = room_config.get("players", [])
+        room_config = await fetch_room_config_http(data.room_id)
 
-        if not blind_levels:
-            raise HTTPException(status_code=400, detail=ErrorMessage.NO_BLIND_LEVELS)
+        if not room_config.blind_levels:
+            raise NotFound("No blind levels configured for this room")
 
-        starting_dealer_seat = room_config.get("starting_dealer_seat", 1)
-        active_seats = sorted([p["seat_number"] for p in players if p["is_active"] and not p["is_eliminated"]])
+        active_seats = room_config.active_seats
 
         if len(active_seats) < 2:
-            raise HTTPException(status_code=400, detail="At least 2 active players are required")
+            raise GameNotActive("At least 2 active players are required")
 
-        dealer_seat, sb_seat, bb_seat = self._assign_positions(active_seats, starting_dealer_seat)
+        dealer_seat, sb_seat, bb_seat = self._assign_positions(
+            active_seats, room_config.starting_dealer_seat,
+        )
 
         game_id = str(uuid.uuid4())
         now = datetime.now(timezone.utc)
@@ -81,6 +73,8 @@ class GameCommandService:
                 current_big_blind_seat=bb_seat,
             )
             self.db.add(game)
+
+            await save_room_snapshot(self.db, game_id, room_config)
 
             event = build_event(
                 GameEventType.STARTED,
@@ -101,7 +95,7 @@ class GameCommandService:
         return game_to_response(game)
 
     async def start_round(self, game_id: str) -> RoundResponse:
-        game = await fetch_or_404(
+        game = await fetch_or_raise(
             self.db, Game,
             filter_column=Game.game_id,
             filter_value=game_id,
@@ -109,39 +103,33 @@ class GameCommandService:
         )
 
         if game.status != GameStatus.ACTIVE:
-            raise HTTPException(status_code=400, detail=ErrorMessage.GAME_NOT_ACTIVE)
+            raise GameNotActive("Game is not in ACTIVE status")
 
         existing_active = await get_active_round(self.db, game_id)
         if existing_active:
-            raise HTTPException(status_code=409, detail="A round is already active")
+            raise GameNotActive("A round is already active")
 
         round_count = await count_rounds(self.db, game_id)
         round_number = round_count + 1
 
-        room_config = await self._fetch_room_config(game.room_id)
-        blind_levels = room_config.get("blind_levels", [])
-        current_level = next(
-            (bl for bl in blind_levels if bl["level"] == game.current_blind_level),
-            blind_levels[0] if blind_levels else None,
-        )
+        room_config = await load_room_snapshot(self.db, game_id)
+        current_level = room_config.blind_level(game.current_blind_level)
+        if current_level is None and room_config.blind_levels:
+            current_level = room_config.blind_levels[0]
 
         if not current_level:
-            raise HTTPException(status_code=400, detail=ErrorMessage.NO_BLIND_LEVELS)
+            raise NotFound("No blind levels configured for this room")
 
         round_id = str(uuid.uuid4())
 
-        small_blind = current_level["small_blind"]
-        big_blind = current_level["big_blind"]
-        ante = current_level.get("ante", 0)
+        small_blind = current_level.small_blind
+        big_blind = current_level.big_blind
+        ante = current_level.ante
 
-        players = room_config.get("players", [])
-        active_players = sorted(
-            [p for p in players if p["is_active"] and not p["is_eliminated"]],
-            key=lambda p: p["seat_number"],
-        )
+        active_players = room_config.active_players
 
         # Determine first-to-act: player after big blind
-        active_seats = [p["seat_number"] for p in active_players]
+        active_seats = [p.seat_number for p in active_players]
         bb_seat = game.current_big_blind_seat
         if bb_seat in active_seats:
             bb_idx = active_seats.index(bb_seat)
@@ -154,9 +142,9 @@ class GameCommandService:
         # ── Post forced bets (blinds + antes) — pure computation ────
         seat_players = [
             SeatPlayer(
-                player_id=p["player_id"],
-                seat_number=p["seat_number"],
-                stack=p.get("chip_count", 0),
+                player_id=p.player_id,
+                seat_number=p.seat_number,
+                stack=p.chip_count,
             )
             for p in active_players
         ]
@@ -216,6 +204,28 @@ class GameCommandService:
             game_round.pot_amount = posting.pot_total
             game_round.current_highest_bet = posting.current_highest_bet
 
+            # ── Ledger entries for forced bets ──────────────────────
+            for pp in posting.players:
+                if pp.committed_this_hand <= 0:
+                    continue
+                if pp.seat_number == game.current_small_blind_seat:
+                    entry_type = LedgerEntryType.BLIND_POSTED
+                    detail = {"role": "SB"}
+                elif pp.seat_number == game.current_big_blind_seat:
+                    entry_type = LedgerEntryType.BLIND_POSTED
+                    detail = {"role": "BB"}
+                else:
+                    entry_type = LedgerEntryType.ANTE_POSTED
+                    detail = {}
+                self.db.add(HandLedgerEntry(
+                    entry_id=str(uuid.uuid4()),
+                    round_id=round_id,
+                    entry_type=entry_type,
+                    player_id=pp.player_id,
+                    amount=pp.committed_this_hand,
+                    detail=detail if detail else None,
+                ))
+
             event = build_event(
                 GameEventType.ROUND_STARTED,
                 {
@@ -240,7 +250,7 @@ class GameCommandService:
 
     async def resolve_hand(self, round_id: str, data: ResolveHandRequest) -> ResolveHandResponse:
         # ── Phase 1: reads + validation (no DB writes) ──────────────
-        game_round = await fetch_or_404(
+        game_round = await fetch_or_raise(
             self.db, Round,
             filter_column=Round.round_id,
             filter_value=round_id,
@@ -248,43 +258,52 @@ class GameCommandService:
         )
 
         if game_round.status != RoundStatus.ACTIVE:
-            raise HTTPException(status_code=400, detail=ErrorMessage.ROUND_NOT_ACTIVE)
+            raise RoundNotActive("Round is not in ACTIVE status")
 
         if not data.payouts:
-            raise HTTPException(status_code=400, detail=ErrorMessage.PAYOUT_EMPTY)
+            raise PayoutEmpty("At least one pot payout is required")
 
         total_paid = sum(
             w.amount for pot in data.payouts for w in pot.winners
         )
         if total_paid > game_round.pot_amount:
-            raise HTTPException(status_code=400, detail=ErrorMessage.PAYOUT_TOTAL_EXCEEDS_POT)
+            raise PayoutExceedsPot("Total payouts exceed pot amount")
 
         for pot in data.payouts:
             pot_winner_total = sum(w.amount for w in pot.winners)
             if pot_winner_total != pot.amount:
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"Pot {pot.pot_index} winners total {pot_winner_total} != pot amount {pot.amount}",
+                raise PayoutMismatch(
+                    f"Pot {pot.pot_index} winners total {pot_winner_total} != pot amount {pot.amount}"
                 )
 
         round_players = await get_round_players(self.db, round_id)
         player_map = {rp.player_id: rp for rp in round_players}
 
-        game = await fetch_or_404(
+        # Validate payouts against computed side-pot structure
+        payout_dicts = [
+            {
+                "pot_index": pot.pot_index,
+                "amount": pot.amount,
+                "winners": [
+                    {"player_id": w.player_id, "amount": w.amount}
+                    for w in pot.winners
+                ],
+            }
+            for pot in data.payouts
+        ]
+        validate_payouts_against_side_pots(
+            round_players, payout_dicts, game_round.pot_amount,
+        )
+
+        game = await fetch_or_raise(
             self.db, Game,
             filter_column=Game.game_id,
             filter_value=game_round.game_id,
             detail=ErrorMessage.GAME_NOT_FOUND,
         )
 
-        # External HTTP call — must happen outside the write block so a
-        # network timeout cannot leave partial writes in the session.
-        room_config = await self._fetch_room_config(game.room_id)
-        active_seats = sorted([
-            p["seat_number"]
-            for p in room_config.get("players", [])
-            if p["is_active"] and not p["is_eliminated"]
-        ])
+        room_config = await load_room_snapshot(self.db, game_round.game_id)
+        active_seats = room_config.active_seats
 
         payout_summary = [
             {
@@ -322,11 +341,31 @@ class GameCommandService:
                     if rp is not None:
                         rp.stack_remaining += winner.amount
 
+                    self.db.add(HandLedgerEntry(
+                        entry_id=str(uuid.uuid4()),
+                        round_id=round_id,
+                        entry_type=LedgerEntryType.PAYOUT_AWARDED,
+                        player_id=winner.player_id,
+                        amount=winner.amount,
+                        detail={
+                            "pot_index": pot.pot_index,
+                            "pot_type": pot.pot_type,
+                        },
+                    ))
+
             game_round.status = RoundStatus.COMPLETED
             game_round.street = Street.SHOWDOWN
             game_round.acting_player_id = None
             game_round.is_action_closed = True
             game_round.completed_at = datetime.now(timezone.utc)
+
+            self.db.add(HandLedgerEntry(
+                entry_id=str(uuid.uuid4()),
+                round_id=round_id,
+                entry_type=LedgerEntryType.ROUND_COMPLETED,
+                player_id=None,
+                amount=game_round.pot_amount,
+            ))
 
             if len(active_seats) >= 2:
                 dealer_seat, sb_seat, bb_seat = self._rotate_positions(
@@ -360,7 +399,7 @@ class GameCommandService:
 
     async def advance_street(self, round_id: str) -> AdvanceStreetResponse:
         """Advance the round to the next street after current action is complete."""
-        game_round = await fetch_or_404(
+        game_round = await fetch_or_raise(
             self.db, Round,
             filter_column=Round.round_id,
             filter_value=round_id,
@@ -368,10 +407,10 @@ class GameCommandService:
         )
 
         if game_round.status != RoundStatus.ACTIVE:
-            raise HTTPException(status_code=400, detail=ErrorMessage.ROUND_NOT_ACTIVE)
+            raise RoundNotActive("Round is not in ACTIVE status")
 
         if game_round.street == Street.SHOWDOWN:
-            raise HTTPException(status_code=400, detail=ErrorMessage.ALREADY_AT_SHOWDOWN)
+            raise AlreadyAtShowdown("Cannot advance street: round is already at showdown")
 
         round_players = await get_round_players(self.db, round_id)
         player_seats = [
@@ -444,7 +483,7 @@ class GameCommandService:
 
     async def declare_winner(self, round_id: str, data: DeclareWinner) -> DeclareWinnerResponse:
         """Legacy single-winner endpoint — delegates to resolve_hand."""
-        game_round = await fetch_or_404(
+        game_round = await fetch_or_raise(
             self.db, Round,
             filter_column=Round.round_id,
             filter_value=round_id,
@@ -468,7 +507,7 @@ class GameCommandService:
         )
 
     async def advance_blinds(self, game_id: str) -> AdvanceBlindsResponse:
-        game = await fetch_or_404(
+        game = await fetch_or_raise(
             self.db, Game,
             filter_column=Game.game_id,
             filter_value=game_id,
@@ -476,19 +515,18 @@ class GameCommandService:
         )
 
         if game.status != GameStatus.ACTIVE:
-            raise HTTPException(status_code=400, detail=ErrorMessage.GAME_NOT_ACTIVE)
+            raise GameNotActive("Game is not in ACTIVE status")
 
-        room_config = await self._fetch_room_config(game.room_id)
-        blind_levels = room_config.get("blind_levels", [])
-        max_level = max((bl["level"] for bl in blind_levels), default=1)
+        room_config = await load_room_snapshot(self.db, game_id)
+        max_level = max((bl.level for bl in room_config.blind_levels), default=1)
 
         if game.current_blind_level >= max_level:
-            raise HTTPException(status_code=400, detail=ErrorMessage.MAX_BLIND_LEVEL_REACHED)
+            raise GameNotActive("Already at the maximum blind level")
 
         new_level_num = game.current_blind_level + 1
-        new_level = next((bl for bl in blind_levels if bl["level"] == new_level_num), None)
+        new_level = room_config.blind_level(new_level_num)
         if not new_level:
-            raise HTTPException(status_code=400, detail=ErrorMessage.MAX_BLIND_LEVEL_REACHED)
+            raise GameNotActive("Already at the maximum blind level")
 
         async with atomic(self.db):
             game.current_blind_level = new_level_num
@@ -500,9 +538,9 @@ class GameCommandService:
                     DataKey.GAME_ID: game_id,
                     DataKey.ROOM_ID: game.room_id,
                     DataKey.BLIND_LEVEL: new_level_num,
-                    DataKey.SMALL_BLIND_AMOUNT: new_level["small_blind"],
-                    DataKey.BIG_BLIND_AMOUNT: new_level["big_blind"],
-                    DataKey.ANTE_AMOUNT: new_level.get("ante", 0),
+                    DataKey.SMALL_BLIND_AMOUNT: new_level.small_blind,
+                    DataKey.BIG_BLIND_AMOUNT: new_level.big_blind,
+                    DataKey.ANTE_AMOUNT: new_level.ante,
                 },
             )
             add_outbox_event(self.db, OutboxEvent, event)
@@ -512,13 +550,13 @@ class GameCommandService:
         return AdvanceBlindsResponse(
             game_id=game_id,
             new_blind_level=new_level_num,
-            small_blind=new_level["small_blind"],
-            big_blind=new_level["big_blind"],
-            ante=new_level.get("ante", 0),
+            small_blind=new_level.small_blind,
+            big_blind=new_level.big_blind,
+            ante=new_level.ante,
         )
 
     async def end_game(self, game_id: str) -> EndGameResponse:
-        game = await fetch_or_404(
+        game = await fetch_or_raise(
             self.db, Game,
             filter_column=Game.game_id,
             filter_value=game_id,

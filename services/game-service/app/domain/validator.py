@@ -1,9 +1,24 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from fastapi import HTTPException
 
-from .constants import BetAction, ErrorMessage
+from .constants import BetAction, RoundStatus
+from .exceptions import (
+    ActionClosed,
+    AmountExceedsStack,
+    BetNotAllowed,
+    CallNotAllowed,
+    CheckNotAllowed,
+    IllegalAction,
+    InvalidAmount,
+    NotYourTurn,
+    PlayerAlreadyAllIn,
+    PlayerAlreadyFolded,
+    PlayerNotInHand,
+    RaiseBelowMinimum,
+    RaiseNotAllowed,
+    RoundNotActive,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -43,42 +58,37 @@ class ValidatedAction:
     amount: int
 
 
-def _fail(detail: str, status_code: int = 400) -> None:
-    raise HTTPException(status_code=status_code, detail=detail)
-
-
 def validate_bet(ctx: HandContext, player_id: str, action: str, amount: int) -> ValidatedAction:
-    """
-    Validate a betting action against the current hand state.
+    """Validate a betting action against the current hand state.
 
-    Returns a ValidatedAction with the canonical action name and chip amount,
-    or raises an HTTPException if the action is illegal.
+    Returns a ``ValidatedAction`` with the canonical action name and chip
+    amount, or raises a domain exception if the action is illegal.
     """
 
     # --- Round-level guards ---
-    if ctx.status != "ACTIVE":
-        _fail(ErrorMessage.ROUND_NOT_ACTIVE)
+    if ctx.status != RoundStatus.ACTIVE:
+        raise RoundNotActive("Round is not in ACTIVE status")
 
     if ctx.is_action_closed:
-        _fail(ErrorMessage.ACTION_CLOSED)
+        raise ActionClosed("Betting action is closed for this street")
 
     # --- Player-level guards ---
     player = ctx.get_player(player_id)
     if player is None:
-        _fail(ErrorMessage.PLAYER_NOT_IN_HAND, status_code=404)
+        raise PlayerNotInHand("Player is not in this hand")
 
     if not player.is_active_in_hand:
-        _fail(ErrorMessage.PLAYER_NOT_IN_HAND)
+        raise PlayerNotInHand("Player is not in this hand")
 
     if player.has_folded:
-        _fail(ErrorMessage.PLAYER_ALREADY_FOLDED)
+        raise PlayerAlreadyFolded("Player has already folded this round")
 
     if player.is_all_in:
-        _fail(ErrorMessage.PLAYER_ALL_IN)
+        raise PlayerAlreadyAllIn("Player is already all-in")
 
     # --- Turn order ---
     if ctx.acting_player_id is not None and ctx.acting_player_id != player_id:
-        _fail(ErrorMessage.NOT_YOUR_TURN)
+        raise NotYourTurn("It is not your turn to act")
 
     # --- Derived values ---
     call_amount = max(0, ctx.current_highest_bet - player.committed_this_street)
@@ -93,30 +103,28 @@ def validate_bet(ctx: HandContext, player_id: str, action: str, amount: int) -> 
     # ======== CHECK ========
     if action_upper == BetAction.CHECK:
         if call_amount > 0:
-            _fail(ErrorMessage.CHECK_NOT_ALLOWED)
+            raise CheckNotAllowed("Cannot check when there is a bet to call")
         return ValidatedAction(action=BetAction.CHECK, amount=0)
 
     # ======== CALL ========
     if action_upper == BetAction.CALL:
         if call_amount == 0:
-            _fail(ErrorMessage.CALL_NOT_ALLOWED)
+            raise CallNotAllowed("Nothing to call — use check instead")
         effective = min(call_amount, stack)
         if effective == stack:
-            # Calling puts player all-in
             return ValidatedAction(action=BetAction.ALL_IN, amount=effective)
         return ValidatedAction(action=BetAction.CALL, amount=effective)
 
     # ======== BET (opening bet — no previous bet on street) ========
     if action_upper == BetAction.BET:
         if ctx.current_highest_bet > 0:
-            _fail(ErrorMessage.BET_NOT_ALLOWED)
+            raise BetNotAllowed("Cannot bet — there is already a bet on this street; use raise")
         if amount <= 0:
-            _fail(ErrorMessage.RAISE_AMOUNT_TOO_LOW)
+            raise InvalidAmount("Bet amount must be greater than 0")
         if amount > stack:
-            _fail(ErrorMessage.AMOUNT_EXCEEDS_STACK)
+            raise AmountExceedsStack("Bet amount exceeds remaining stack")
         if amount < ctx.minimum_raise_amount and amount != stack:
-            # Must meet minimum unless going all-in
-            _fail(ErrorMessage.RAISE_BELOW_MINIMUM)
+            raise RaiseBelowMinimum("Bet amount is below the minimum")
         if amount == stack:
             return ValidatedAction(action=BetAction.ALL_IN, amount=amount)
         return ValidatedAction(action=BetAction.BET, amount=amount)
@@ -124,25 +132,22 @@ def validate_bet(ctx: HandContext, player_id: str, action: str, amount: int) -> 
     # ======== RAISE ========
     if action_upper == BetAction.RAISE:
         if ctx.current_highest_bet == 0:
-            _fail(ErrorMessage.RAISE_NOT_ALLOWED)
+            raise RaiseNotAllowed("Cannot raise — no previous bet to raise; use bet")
         if amount <= 0:
-            _fail(ErrorMessage.RAISE_AMOUNT_TOO_LOW)
+            raise InvalidAmount("Raise amount must be greater than 0")
 
-        # "amount" is the total chips the player wants to have committed this street.
-        # The raise *increment* over the current highest bet must meet the minimum.
         total_to_commit = amount
         additional_chips = total_to_commit - player.committed_this_street
 
         if additional_chips <= 0:
-            _fail(ErrorMessage.RAISE_AMOUNT_TOO_LOW)
+            raise InvalidAmount("Raise amount must be greater than 0")
 
         if additional_chips > stack:
-            _fail(ErrorMessage.AMOUNT_EXCEEDS_STACK)
+            raise AmountExceedsStack("Raise amount exceeds remaining stack")
 
         raise_increment = total_to_commit - ctx.current_highest_bet
         if raise_increment < ctx.minimum_raise_amount and additional_chips != stack:
-            # Under-raise only allowed if it is an all-in
-            _fail(ErrorMessage.RAISE_BELOW_MINIMUM)
+            raise RaiseBelowMinimum("Raise amount is below the minimum raise")
 
         if additional_chips == stack:
             return ValidatedAction(action=BetAction.ALL_IN, amount=additional_chips)
@@ -151,7 +156,7 @@ def validate_bet(ctx: HandContext, player_id: str, action: str, amount: int) -> 
     # ======== ALL_IN (explicit) ========
     if action_upper == BetAction.ALL_IN:
         if stack <= 0:
-            _fail(ErrorMessage.PLAYER_ALL_IN)
+            raise PlayerAlreadyAllIn("Player is already all-in")
         return ValidatedAction(action=BetAction.ALL_IN, amount=stack)
 
-    _fail(ErrorMessage.INVALID_ACTION, status_code=422)
+    raise IllegalAction(f"Invalid bet action: {action}")
