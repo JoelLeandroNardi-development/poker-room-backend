@@ -7,7 +7,6 @@ from ...domain.schemas import AuthUserResponse, UpdateAuthUser
 from ...infrastructure.password_hasher import password_hasher
 from shared.core.db.crud import fetch_or_404
 
-
 class AuthUserCommandService:
     def __init__(self, db: AsyncSession):
         self.db = db

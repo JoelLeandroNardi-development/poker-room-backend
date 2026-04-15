@@ -4,7 +4,6 @@ import bcrypt
 
 from .config import BCRYPT_ROUNDS
 
-
 class PasswordHasher:
     def __init__(self) -> None:
         self._rounds = BCRYPT_ROUNDS
@@ -21,6 +20,5 @@ class PasswordHasher:
             )
         except ValueError:
             return False
-
 
 password_hasher = PasswordHasher()

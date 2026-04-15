@@ -7,11 +7,9 @@ import pytest
 
 from tests.helpers import MockMessage, SAMPLE_DT
 
-
 @pytest.fixture
 def sample_datetime():
     return SAMPLE_DT
-
 
 @pytest.fixture
 def rabbit_channel_mock():
@@ -21,7 +19,6 @@ def rabbit_channel_mock():
     mock.declare_queue = AsyncMock()
     mock.get_queue = AsyncMock()
     return mock
-
 
 @pytest.fixture
 def rabbit_message_mock():
@@ -34,11 +31,9 @@ def rabbit_message_mock():
     mock.nack = AsyncMock()
     return mock
 
-
 @pytest.fixture
 def mock_logger():
     return MagicMock()
-
 
 @pytest.fixture
 def mock_db_session():

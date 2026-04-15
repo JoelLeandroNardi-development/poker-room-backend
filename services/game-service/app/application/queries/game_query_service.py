@@ -10,7 +10,6 @@ from ...domain.schemas import GameResponse, RoundResponse
 from ...infrastructure.repository import get_rounds_for_game, get_active_round
 from shared.core.db.crud import fetch_or_404
 
-
 class GameQueryService:
     def __init__(self, db: AsyncSession):
         self.db = db

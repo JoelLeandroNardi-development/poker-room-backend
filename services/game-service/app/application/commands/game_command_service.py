@@ -26,7 +26,6 @@ from shared.core.db.crud import fetch_or_404
 
 ROOM_SERVICE_URL = os.getenv("ROOM_SERVICE_URL", "http://room-service:8000")
 
-
 class GameCommandService:
     def __init__(self, db: AsyncSession):
         self.db = db

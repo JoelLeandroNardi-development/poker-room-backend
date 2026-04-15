@@ -21,7 +21,6 @@ app.include_router(game_router)
 app.include_router(round_router)
 app.include_router(bet_router)
 
-
 @app.get("/health")
 async def health():
     return {"status": "ok", "service": SERVICE_NAME}

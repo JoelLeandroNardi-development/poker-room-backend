@@ -19,26 +19,21 @@ from shared.core.db.session import make_get_db
 router = APIRouter()
 get_db = make_get_db(SessionLocal)
 
-
 @router.post("/register")
 async def register(data: Register, db: AsyncSession = Depends(get_db)):
     return await AuthCommandService(db).register(data)
-
 
 @router.post("/login", response_model=TokenPairResponse)
 async def login(data: Login, db: AsyncSession = Depends(get_db)):
     return await AuthCommandService(db).login(data)
 
-
 @router.post("/refresh", response_model=TokenPairResponse)
 async def refresh_tokens(payload: RefreshRequest, db: AsyncSession = Depends(get_db)):
     return await AuthCommandService(db).refresh_tokens(payload)
 
-
 @router.post("/logout")
 async def logout(payload: LogoutRequest, db: AsyncSession = Depends(get_db)):
     return await AuthCommandService(db).logout(payload)
-
 
 @router.get("/auth-users", response_model=list[AuthUserResponse])
 async def list_auth_users(
@@ -48,16 +43,13 @@ async def list_auth_users(
 ):
     return await AuthUserQueryService(db).list_users(limit, offset)
 
-
 @router.get("/auth-users/{user_id}", response_model=AuthUserResponse)
 async def get_auth_user(user_id: int, db: AsyncSession = Depends(get_db)):
     return await AuthUserQueryService(db).get_by_id(user_id)
 
-
 @router.get("/auth-users/by-email/{email}", response_model=AuthUserResponse)
 async def get_auth_user_by_email(email: str, db: AsyncSession = Depends(get_db)):
     return await AuthUserQueryService(db).get_auth_user_by_email(email)
-
 
 @router.put("/auth-users/{user_id}", response_model=AuthUserResponse)
 async def update_auth_user(
@@ -66,7 +58,6 @@ async def update_auth_user(
     db: AsyncSession = Depends(get_db),
 ):
     return await AuthUserCommandService(db).update_auth_user(user_id, data)
-
 
 @router.delete("/auth-users/{user_id}")
 async def delete_auth_user(user_id: int, db: AsyncSession = Depends(get_db)):

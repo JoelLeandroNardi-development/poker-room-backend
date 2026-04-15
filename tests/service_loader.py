@@ -12,7 +12,6 @@ APP_DIRNAME = "app"
 GATEWAY_SERVICE_DIR = "gateway-service"
 PACKAGE_SUFFIX_APP = "_app"
 
-
 def load_service_app_module(
     service_dir: str,
     module_name: str,

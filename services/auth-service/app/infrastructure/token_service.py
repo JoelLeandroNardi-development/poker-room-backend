@@ -28,26 +28,20 @@ class TokenPair:
     access_expires_at: datetime
     refresh_expires_at: datetime
 
-
 def _now_utc() -> datetime:
     return datetime.now(timezone.utc)
-
 
 def _encode_token(payload: dict) -> str:
     return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
 
-
 def decode_token(token: str) -> dict:
     return jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
-
 
 def hash_token(token: str) -> str:
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
-
 def generate_opaque_token() -> str:
     return secrets.token_urlsafe(32)
-
 
 def issue_token_pair(*, user_email: str, roles: list[str], session_id: str) -> TokenPair:
     now = _now_utc()

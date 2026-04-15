@@ -14,7 +14,6 @@ from .messaging import EXCHANGE_NAME, RABBIT_URL, publisher
 from ..domain.models import Round
 from shared.core.messaging.consumer import run_consumer_with_retry_dlq
 
-
 async def process_event(payload: dict):
     event_type = payload.get(EventKey.EVENT_TYPE)
     data = payload.get(EventKey.DATA) or {}
@@ -35,7 +34,6 @@ async def process_event(payload: dict):
                 game_round.pot_amount = pot_amount
 
         await db.commit()
-
 
 async def start_consumer():
     if not RABBIT_URL:

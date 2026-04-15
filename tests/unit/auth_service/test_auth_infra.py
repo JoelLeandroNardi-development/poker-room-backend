@@ -10,7 +10,6 @@ os.environ.setdefault("BCRYPT_ROUNDS", "4")  # fast rounds for tests
 
 from tests.service_loader import load_service_app_module
 
-
 @pytest.fixture(scope="module")
 def auth_pw_module():
     return load_service_app_module(
@@ -19,14 +18,12 @@ def auth_pw_module():
         reload_modules=True,
     )
 
-
 @pytest.fixture(scope="module")
 def auth_token_module(auth_pw_module):
     return load_service_app_module(
         "auth-service", "infrastructure/token_service",
         package_name="auth_test_app",
     )
-
 
 @pytest.mark.unit
 class TestPasswordHasher:
@@ -61,7 +58,6 @@ class TestPasswordHasher:
         h1 = hasher.hash("same_password")
         h2 = hasher.hash("same_password")
         assert h1 != h2  # bcrypt salts differ
-
 
 @pytest.mark.unit
 class TestTokenService:

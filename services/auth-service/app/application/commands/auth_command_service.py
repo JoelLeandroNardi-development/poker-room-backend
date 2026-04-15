@@ -16,7 +16,6 @@ from ...infrastructure.token_service import (
     issue_token_pair,
 )
 
-
 class AuthCommandService:
     def __init__(self, db: AsyncSession):
         self.db = db

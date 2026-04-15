@@ -1,16 +1,13 @@
 from __future__ import annotations
 from enum import StrEnum
 
-
 class TableName(StrEnum):
     AUTH_USERS = "auth_users"
     AUTH_SESSIONS = "auth_sessions"
     PASSWORD_RESET_TOKENS = "password_reset_tokens"
 
-
 class ForeignKeyName(StrEnum):
     AUTH_USERS_ID = "auth_users.id"
-
 
 class TokenClaim(StrEnum):
     SUBJECT = "sub"
@@ -21,15 +18,12 @@ class TokenClaim(StrEnum):
     SESSION_ID = "sid"
     TOKEN_TYPE = "typ"
 
-
 class TokenType(StrEnum):
     REFRESH = "refresh"
-
 
 class UserRole(StrEnum):
     USER = "user"
     ADMIN = "admin"
-
 
 class ErrorMessage(StrEnum):
     EMAIL_ALREADY_EXISTS = "Email already exists"
@@ -46,7 +40,6 @@ class ErrorMessage(StrEnum):
     RESET_TOKEN_ALREADY_USED = "Reset token already used"
     RESET_TOKEN_EXPIRED = "Reset token expired"
 
-
 class ResponseKey(StrEnum):
     MESSAGE = "message"
     ROLES = "roles"
@@ -55,6 +48,5 @@ class ResponseKey(StrEnum):
     EXPIRES_IN = "expires_in"
     OK = "ok"
     EMAIL = "email"
-
 
 SERVER_DEFAULT_FALSE = "false"

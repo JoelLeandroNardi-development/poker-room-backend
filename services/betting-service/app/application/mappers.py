@@ -1,7 +1,6 @@
 from ..domain.models import Bet
 from ..domain.schemas import BetResponse
 
-
 def bet_to_response(bet: Bet) -> BetResponse:
     return BetResponse(
         bet_id=bet.bet_id,

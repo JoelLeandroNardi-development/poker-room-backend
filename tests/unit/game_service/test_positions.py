@@ -10,7 +10,6 @@ os.environ.setdefault("GAME_DB", "sqlite+aiosqlite:///:memory:")
 os.environ.setdefault("RABBIT_URL", "amqp://guest:guest@localhost:5672/")
 os.environ.setdefault("EXCHANGE_NAME", "test_exchange")
 
-
 @pytest.fixture(scope="module")
 def game_cmd_module():
     return load_service_app_module(
@@ -19,11 +18,9 @@ def game_cmd_module():
         reload_modules=True,
     )
 
-
 @pytest.fixture(scope="module")
 def cmd_service_class(game_cmd_module):
     return game_cmd_module.GameCommandService
-
 
 @pytest.mark.unit
 class TestAssignPositions:
@@ -68,7 +65,6 @@ class TestAssignPositions:
         assert dealer == 2  # defaults to first seat
         assert sb == 4
         assert bb == 6
-
 
 @pytest.mark.unit
 class TestRotatePositions:

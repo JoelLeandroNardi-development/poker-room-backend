@@ -18,7 +18,6 @@ _consumer_conn = None
 _outbox_task: asyncio.Task | None = None
 _consumer_task: asyncio.Task | None = None
 
-
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global _consumer_conn, _outbox_task, _consumer_task
@@ -72,10 +71,8 @@ async def lifespan(app: FastAPI):
     except Exception:
         pass
 
-
 app = FastAPI(title="Betting Service", lifespan=lifespan)
 app.include_router(router)
-
 
 @app.get("/health", response_model=dict[str, object])
 async def health():
@@ -87,7 +84,6 @@ async def health():
         "rabbit_url_set": bool(RABBIT_URL),
         "outbox": await outbox_stats(),
     }
-
 
 @app.get("/debug/rabbit", response_model=dict[str, object])
 async def debug_rabbit():

@@ -17,7 +17,6 @@ from ...infrastructure.repository import (
 )
 from shared.core.outbox.helpers import add_outbox_event
 
-
 class BetCommandService:
     def __init__(self, db: AsyncSession):
         self.db = db

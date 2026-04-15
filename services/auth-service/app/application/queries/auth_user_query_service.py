@@ -6,7 +6,6 @@ from ...domain.models import AuthUser
 from ...domain.schemas import AuthUserResponse
 from shared.core.db.crud import fetch_or_404
 
-
 class AuthUserQueryService:
     def __init__(self, db: AsyncSession):
         self.db = db

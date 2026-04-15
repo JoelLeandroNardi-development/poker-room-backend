@@ -1,7 +1,6 @@
 from ..domain.models import Room, RoomPlayer, BlindLevel
 from ..domain.schemas import RoomResponse, RoomPlayerResponse, BlindLevelResponse
 
-
 def room_to_response(room: Room) -> RoomResponse:
     return RoomResponse(
         room_id=room.room_id,
@@ -15,7 +14,6 @@ def room_to_response(room: Room) -> RoomResponse:
         created_at=room.created_at,
     )
 
-
 def player_to_response(player: RoomPlayer) -> RoomPlayerResponse:
     return RoomPlayerResponse(
         player_id=player.player_id,
@@ -27,7 +25,6 @@ def player_to_response(player: RoomPlayer) -> RoomPlayerResponse:
         is_eliminated=bool(player.is_eliminated),
         joined_at=player.joined_at,
     )
-
 
 def blind_level_to_response(bl: BlindLevel) -> BlindLevelResponse:
     return BlindLevelResponse(

@@ -3,7 +3,6 @@ from __future__ import annotations
 from fastapi import HTTPException
 from httpx import Response
 
-
 def forward_response(resp: Response) -> dict:
     if resp.status_code >= 400:
         try:

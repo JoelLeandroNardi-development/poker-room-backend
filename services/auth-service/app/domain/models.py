@@ -3,7 +3,6 @@ from sqlalchemy import Column, DateTime, ForeignKey, Integer, String, JSON, func
 from .constants import ForeignKeyName, SERVER_DEFAULT_FALSE, TableName
 from ..infrastructure.db import Base
 
-
 class AuthUser(Base):
     __tablename__ = TableName.AUTH_USERS
 
@@ -12,7 +11,6 @@ class AuthUser(Base):
     password = Column(String, nullable=False)
     roles = Column(JSON, nullable=False)
     last_login_at = Column(DateTime(timezone=True), nullable=True)
-
 
 class AuthSession(Base):
     __tablename__ = TableName.AUTH_SESSIONS
@@ -31,7 +29,6 @@ class AuthSession(Base):
     last_seen_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     ip = Column(String(64), nullable=True)
     user_agent = Column(String(512), nullable=True)
-
 
 class PasswordResetToken(Base):
     __tablename__ = TableName.PASSWORD_RESET_TOKENS

@@ -12,7 +12,6 @@ from ..config import (
 
 DEFAULT_TIMEOUT = 10.0
 
-
 class ServiceClient:
     def __init__(self, base_url: str, timeout: float = DEFAULT_TIMEOUT):
         self.base_url = base_url
@@ -33,7 +32,6 @@ class ServiceClient:
     async def delete(self, path: str, **kwargs) -> httpx.Response:
         async with httpx.AsyncClient(base_url=self.base_url, timeout=self.timeout) as client:
             return await client.delete(path, **kwargs)
-
 
 auth_client = ServiceClient(AUTH_SERVICE_URL)
 user_client = ServiceClient(USER_SERVICE_URL)

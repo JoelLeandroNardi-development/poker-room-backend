@@ -9,7 +9,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..domain.constants import CODE_LENGTH
 from ..domain.models import Room, RoomPlayer, BlindLevel
 
-
 async def generate_unique_code(db: AsyncSession) -> str:
     chars = string.ascii_uppercase + string.digits
     for _ in range(100):
@@ -19,11 +18,9 @@ async def generate_unique_code(db: AsyncSession) -> str:
             return code
     raise RuntimeError("Failed to generate unique room code after 100 attempts")
 
-
 async def get_room_by_code(db: AsyncSession, code: str) -> Room | None:
     res = await db.execute(select(Room).where(Room.code == code.upper()))
     return res.scalar_one_or_none()
-
 
 async def get_players_in_room(db: AsyncSession, room_id: str) -> list[RoomPlayer]:
     res = await db.execute(
@@ -33,7 +30,6 @@ async def get_players_in_room(db: AsyncSession, room_id: str) -> list[RoomPlayer
     )
     return list(res.scalars().all())
 
-
 async def get_active_players_in_room(db: AsyncSession, room_id: str) -> list[RoomPlayer]:
     res = await db.execute(
         select(RoomPlayer)
@@ -42,13 +38,11 @@ async def get_active_players_in_room(db: AsyncSession, room_id: str) -> list[Roo
     )
     return list(res.scalars().all())
 
-
 async def count_players_in_room(db: AsyncSession, room_id: str) -> int:
     res = await db.execute(
         select(func.count(RoomPlayer.id)).where(RoomPlayer.room_id == room_id)
     )
     return res.scalar_one()
-
 
 async def get_next_seat_number(db: AsyncSession, room_id: str) -> int:
     res = await db.execute(
@@ -57,7 +51,6 @@ async def get_next_seat_number(db: AsyncSession, room_id: str) -> int:
     max_seat = res.scalar_one()
     return (max_seat or 0) + 1
 
-
 async def get_blind_levels(db: AsyncSession, room_id: str) -> list[BlindLevel]:
     res = await db.execute(
         select(BlindLevel)
@@ -65,7 +58,6 @@ async def get_blind_levels(db: AsyncSession, room_id: str) -> list[BlindLevel]:
         .order_by(BlindLevel.level.asc())
     )
     return list(res.scalars().all())
-
 
 async def player_name_exists_in_room(db: AsyncSession, room_id: str, player_name: str) -> bool:
     res = await db.execute(

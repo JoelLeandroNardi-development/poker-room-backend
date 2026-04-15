@@ -29,7 +29,6 @@ from ...infrastructure.repository import (
 from shared.core.outbox.helpers import add_outbox_event
 from shared.core.db.crud import fetch_or_404
 
-
 class RoomCommandService:
     def __init__(self, db: AsyncSession):
         self.db = db

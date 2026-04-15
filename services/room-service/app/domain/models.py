@@ -5,7 +5,6 @@ from .constants import RoomStatus, TableName
 from ..infrastructure.db import Base
 from shared.core.outbox.model import make_outbox_event_model
 
-
 class Room(Base):
     __tablename__ = TableName.ROOMS
 
@@ -21,7 +20,6 @@ class Room(Base):
     created_by = Column(String, nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
-
 class RoomPlayer(Base):
     __tablename__ = TableName.ROOM_PLAYERS
 
@@ -35,7 +33,6 @@ class RoomPlayer(Base):
     is_eliminated = Column(Boolean, nullable=False, default=False)
     joined_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
-
 class BlindLevel(Base):
     __tablename__ = TableName.BLIND_LEVELS
 
@@ -46,6 +43,5 @@ class BlindLevel(Base):
     big_blind = Column(Integer, nullable=False)
     ante = Column(Integer, nullable=False, default=0)
     duration_minutes = Column(Integer, nullable=False)
-
 
 OutboxEvent = make_outbox_event_model(Base)

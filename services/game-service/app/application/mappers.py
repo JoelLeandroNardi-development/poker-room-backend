@@ -1,7 +1,6 @@
 from ..domain.models import Game, Round
 from ..domain.schemas import GameResponse, RoundResponse
 
-
 def game_to_response(game: Game) -> GameResponse:
     return GameResponse(
         game_id=game.game_id,
@@ -14,7 +13,6 @@ def game_to_response(game: Game) -> GameResponse:
         current_big_blind_seat=game.current_big_blind_seat,
         created_at=game.created_at,
     )
-
 
 def round_to_response(game_round: Round) -> RoundResponse:
     return RoundResponse(

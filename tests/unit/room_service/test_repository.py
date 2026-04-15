@@ -12,7 +12,6 @@ os.environ.setdefault("ROOM_DB", "sqlite+aiosqlite:///:memory:")
 os.environ.setdefault("RABBIT_URL", "amqp://guest:guest@localhost:5672/")
 os.environ.setdefault("EXCHANGE_NAME", "test_exchange")
 
-
 @pytest.fixture(scope="module")
 def room_db_module():
     return load_service_app_module(
@@ -21,7 +20,6 @@ def room_db_module():
         reload_modules=True,
     )
 
-
 @pytest.fixture(scope="module")
 def room_models_module(room_db_module):
     return load_service_app_module(
@@ -29,14 +27,12 @@ def room_models_module(room_db_module):
         package_name="room_test_app",
     )
 
-
 @pytest.fixture(scope="module")
 def room_repo_module(room_models_module):
     return load_service_app_module(
         "room-service", "infrastructure/repository",
         package_name="room_test_app",
     )
-
 
 @pytest.fixture(autouse=True)
 async def _setup_tables(room_db_module, room_models_module):
@@ -46,7 +42,6 @@ async def _setup_tables(room_db_module, room_models_module):
     yield
     async with engine.begin() as conn:
         await conn.run_sync(room_db_module.Base.metadata.drop_all)
-
 
 async def _insert_room(room_db_module, room_models_module, *, room_id: str, code: str, max_players: int = 6):
     Room = room_models_module.Room
@@ -64,7 +59,6 @@ async def _insert_room(room_db_module, room_models_module, *, room_id: str, code
         ))
         await db.commit()
 
-
 async def _insert_player(room_db_module, room_models_module, *, room_id: str, player_id: str, player_name: str, seat: int):
     RoomPlayer = room_models_module.RoomPlayer
     async with room_db_module.SessionLocal() as db:
@@ -78,7 +72,6 @@ async def _insert_player(room_db_module, room_models_module, *, room_id: str, pl
             is_eliminated=False,
         ))
         await db.commit()
-
 
 @pytest.mark.unit
 class TestGenerateUniqueCode:
@@ -104,7 +97,6 @@ class TestGenerateUniqueCode:
                 codes.add(code)
         assert len(codes) == 20
 
-
 @pytest.mark.unit
 class TestGetRoomByCode:
     @pytest.mark.asyncio
@@ -129,7 +121,6 @@ class TestGetRoomByCode:
             room = await room_repo_module.get_room_by_code(db, "ZZZZ")
         assert room is None
 
-
 @pytest.mark.unit
 class TestGetPlayersInRoom:
     @pytest.mark.asyncio
@@ -152,7 +143,6 @@ class TestGetPlayersInRoom:
             players = await room_repo_module.get_players_in_room(db, "r4")
         assert players == []
 
-
 @pytest.mark.unit
 class TestCountPlayersInRoom:
     @pytest.mark.asyncio
@@ -164,7 +154,6 @@ class TestCountPlayersInRoom:
         async with room_db_module.SessionLocal() as db:
             count = await room_repo_module.count_players_in_room(db, "r5")
         assert count == 2
-
 
 @pytest.mark.unit
 class TestPlayerNameExistsInRoom:

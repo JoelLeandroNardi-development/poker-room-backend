@@ -2,18 +2,15 @@ from __future__ import annotations
 
 from enum import StrEnum
 
-
 class GameStatus(StrEnum):
     WAITING = "WAITING"
     ACTIVE = "ACTIVE"
     PAUSED = "PAUSED"
     FINISHED = "FINISHED"
 
-
 class RoundStatus(StrEnum):
     ACTIVE = "ACTIVE"
     COMPLETED = "COMPLETED"
-
 
 class GameEventType(StrEnum):
     STARTED = "game.started"
@@ -22,22 +19,18 @@ class GameEventType(StrEnum):
     BLINDS_INCREASED = "game.blinds_increased"
     FINISHED = "game.finished"
 
-
 class RoomEventType(StrEnum):
     CREATED = "room.created"
     PLAYER_JOINED = "room.player_joined"
     PLAYER_ELIMINATED = "room.player_eliminated"
 
-
 class BetEventType(StrEnum):
     POT_UPDATED = "bet.pot_updated"
-
 
 class EventKey(StrEnum):
     EVENT_ID = "event_id"
     EVENT_TYPE = "event_type"
     DATA = "data"
-
 
 class DataKey(StrEnum):
     GAME_ID = "game_id"
@@ -55,11 +48,9 @@ class DataKey(StrEnum):
     POT_AMOUNT = "pot_amount"
     STATUS = "status"
 
-
 class TableName(StrEnum):
     GAMES = "games"
     ROUNDS = "rounds"
-
 
 class ErrorMessage(StrEnum):
     GAME_NOT_FOUND = "Game not found"
@@ -70,7 +61,6 @@ class ErrorMessage(StrEnum):
     GAME_ALREADY_EXISTS = "An active game already exists for this room"
     NO_BLIND_LEVELS = "No blind levels configured for this room"
     MAX_BLIND_LEVEL_REACHED = "Already at the maximum blind level"
-
 
 class ResponseMessage(StrEnum):
     DELETED = "deleted"

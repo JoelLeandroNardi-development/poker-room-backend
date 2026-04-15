@@ -10,7 +10,6 @@ HEADER_RETRY_COUNT = "x-retry-count"
 
 SAMPLE_DT = datetime(2026, 3, 17, 10, 0, 0, tzinfo=timezone.utc)
 
-
 class MockMessage:
     def __init__(self, body: dict, headers: dict | None = None, retry_count: int = 0):
         self.body = json.dumps(body).encode(ENCODING_UTF8)

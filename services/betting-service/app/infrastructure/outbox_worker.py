@@ -5,10 +5,8 @@ from .messaging import publisher
 from ..domain.models import OutboxEvent
 from shared.core.outbox.worker import run_outbox_loop, make_outbox_stats
 
-
 async def outbox_stats() -> dict:
     return await make_outbox_stats(SessionLocal, OutboxEvent)
-
 
 async def run_outbox_forever(stop_event):
     await run_outbox_loop(

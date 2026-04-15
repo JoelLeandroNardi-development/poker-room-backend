@@ -5,7 +5,6 @@ from .constants import GameStatus, RoundStatus, TableName
 from ..infrastructure.db import Base
 from shared.core.outbox.model import make_outbox_event_model
 
-
 class Game(Base):
     __tablename__ = TableName.GAMES
 
@@ -19,7 +18,6 @@ class Game(Base):
     current_small_blind_seat = Column(Integer, nullable=False, default=2)
     current_big_blind_seat = Column(Integer, nullable=False, default=3)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
-
 
 class Round(Base):
     __tablename__ = TableName.ROUNDS
@@ -39,6 +37,5 @@ class Round(Base):
     pot_amount = Column(Integer, nullable=False, default=0)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     completed_at = Column(DateTime(timezone=True), nullable=True)
-
 
 OutboxEvent = make_outbox_event_model(Base)

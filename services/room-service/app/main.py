@@ -12,7 +12,6 @@ from .infrastructure.outbox_worker import run_outbox_forever, outbox_stats
 _stop = asyncio.Event()
 _outbox_task: asyncio.Task | None = None
 
-
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global _outbox_task
@@ -39,10 +38,8 @@ async def lifespan(app: FastAPI):
     except Exception:
         pass
 
-
 app = FastAPI(title="Room Service", lifespan=lifespan)
 app.include_router(router)
-
 
 @app.get("/health", response_model=dict[str, object])
 async def health():

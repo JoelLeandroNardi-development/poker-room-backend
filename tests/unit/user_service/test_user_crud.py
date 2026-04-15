@@ -10,7 +10,6 @@ os.environ.setdefault("USER_DB", "sqlite+aiosqlite:///:memory:")
 os.environ.setdefault("RABBIT_URL", "amqp://guest:guest@localhost:5672/")
 os.environ.setdefault("EXCHANGE_NAME", "test_exchange")
 
-
 @pytest.fixture(scope="module")
 def user_db_module():
     return load_service_app_module(
@@ -19,14 +18,12 @@ def user_db_module():
         reload_modules=True,
     )
 
-
 @pytest.fixture(scope="module")
 def user_models_module(user_db_module):
     return load_service_app_module(
         "user-service", "domain/models",
         package_name="user_test_app",
     )
-
 
 @pytest.fixture(scope="module")
 def user_cmd_module(user_models_module):
@@ -35,14 +32,12 @@ def user_cmd_module(user_models_module):
         package_name="user_test_app",
     )
 
-
 @pytest.fixture(scope="module")
 def user_query_module(user_models_module):
     return load_service_app_module(
         "user-service", "application/queries/user_query_service",
         package_name="user_test_app",
     )
-
 
 @pytest.fixture(autouse=True)
 async def _setup_tables(user_db_module, user_models_module):
@@ -53,7 +48,6 @@ async def _setup_tables(user_db_module, user_models_module):
     async with engine.begin() as conn:
         await conn.run_sync(user_db_module.Base.metadata.drop_all)
 
-
 async def _create_user(user_db_module, user_models_module, *, email: str, display_name: str = "Test"):
     User = user_models_module.User
     async with user_db_module.SessionLocal() as db:
@@ -62,7 +56,6 @@ async def _create_user(user_db_module, user_models_module, *, email: str, displa
         await db.commit()
         await db.refresh(u)
         return u
-
 
 @pytest.mark.unit
 class TestUserCommandService:
@@ -90,7 +83,6 @@ class TestUserCommandService:
                     _CreateUser(email="dup@example.com", display_name="Dup", first_name="A", last_name="B")
                 )
             assert exc_info.value.status_code == 409
-
 
 @pytest.mark.unit
 class TestUserQueryService:

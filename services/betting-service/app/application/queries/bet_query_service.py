@@ -9,7 +9,6 @@ from ...domain.models import Bet
 from ...domain.schemas import BetResponse, PotResponse, PlayerBetSummary
 from ...infrastructure.repository import get_bets_for_round, get_pot_total
 
-
 class BetQueryService:
     def __init__(self, db: AsyncSession):
         self.db = db

@@ -11,7 +11,6 @@ from .config import (
 from .messaging import EXCHANGE_NAME, RABBIT_URL, publisher
 from shared.core.messaging.consumer import run_consumer_with_retry_dlq
 
-
 async def process_event(payload: dict):
     event_type = payload.get(EventKey.EVENT_TYPE)
 
@@ -23,7 +22,6 @@ async def process_event(payload: dict):
 
     elif event_type == GameEventType.ROUND_COMPLETED:
         print(f"{SERVICE_LOG_PREFIX} Round completed event received")
-
 
 async def start_consumer():
     if not RABBIT_URL:
