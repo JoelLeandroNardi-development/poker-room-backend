@@ -7,7 +7,9 @@ from ..mappers import game_to_response, round_to_response
 from ...domain.constants import ErrorMessage, GameStatus
 from ...domain.models import Game, Round
 from ...domain.schemas import GameResponse, RoundResponse
-from ...infrastructure.repository import get_rounds_for_game, get_active_round
+from ...infrastructure.repository import (
+    get_rounds_for_game, get_active_round, get_round_players, get_round_payouts,
+)
 from shared.core.db.crud import fetch_or_404
 
 class GameQueryService:
@@ -35,7 +37,12 @@ class GameQueryService:
 
     async def list_rounds(self, game_id: str) -> list[RoundResponse]:
         rounds = await get_rounds_for_game(self.db, game_id)
-        return [round_to_response(r) for r in rounds]
+        result = []
+        for r in rounds:
+            players = await get_round_players(self.db, r.round_id)
+            payouts = await get_round_payouts(self.db, r.round_id)
+            result.append(round_to_response(r, players, payouts))
+        return result
 
     async def get_round(self, round_id: str) -> RoundResponse:
         game_round = await fetch_or_404(
@@ -44,10 +51,14 @@ class GameQueryService:
             filter_value=round_id,
             detail=ErrorMessage.ROUND_NOT_FOUND,
         )
-        return round_to_response(game_round)
+        players = await get_round_players(self.db, round_id)
+        payouts = await get_round_payouts(self.db, round_id)
+        return round_to_response(game_round, players, payouts)
 
     async def get_active_round(self, game_id: str) -> RoundResponse | None:
         game_round = await get_active_round(self.db, game_id)
         if game_round is None:
             return None
-        return round_to_response(game_round)
+        players = await get_round_players(self.db, game_round.round_id)
+        payouts = await get_round_payouts(self.db, game_round.round_id)
+        return round_to_response(game_round, players, payouts)

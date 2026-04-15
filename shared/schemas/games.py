@@ -2,6 +2,7 @@ from pydantic import BaseModel, Field
 from typing import Optional
 from datetime import datetime
 
+
 class StartGame(BaseModel):
     room_id: str = Field(..., min_length=1)
 
@@ -19,6 +20,60 @@ class GameResponse(BaseModel):
 class StartRound(BaseModel):
     pass
 
+class RoundPlayerResponse(BaseModel):
+    player_id: str
+    seat_number: int
+    stack_remaining: int
+    committed_this_street: int
+    committed_this_hand: int
+    has_folded: bool
+    is_all_in: bool
+    is_active_in_hand: bool
+
+
+# ---------- Payout-based settlement schemas ----------
+
+class WinnerShare(BaseModel):
+    """One player's share of a single pot."""
+    player_id: str = Field(..., min_length=1)
+    amount: int = Field(..., ge=1)
+
+class PotPayout(BaseModel):
+    """A single pot (main or side) with one or more winners."""
+    pot_index: int = Field(0, ge=0)
+    pot_type: str = Field("main")
+    amount: int = Field(..., ge=1)
+    winners: list[WinnerShare] = Field(..., min_length=1)
+
+class ResolveHandRequest(BaseModel):
+    """Dealer submits all pot payouts to settle the hand."""
+    payouts: list[PotPayout] = Field(..., min_length=1)
+
+class PayoutResponse(BaseModel):
+    pot_index: int
+    pot_type: str
+    player_id: str
+    amount: int
+
+class ResolveHandResponse(BaseModel):
+    round_id: str
+    status: str
+    pot_amount: int
+    payouts: list[PayoutResponse]
+
+# Legacy alias kept for backward-compatible imports
+class DeclareWinner(BaseModel):
+    winner_player_id: str = Field(..., min_length=1)
+
+class DeclareWinnerResponse(BaseModel):
+    round_id: str
+    winner_player_id: str
+    pot_amount: int
+    status: str
+
+# --------------------------------------------------
+
+
 class RoundResponse(BaseModel):
     round_id: str
     game_id: str
@@ -30,19 +85,16 @@ class RoundResponse(BaseModel):
     big_blind_amount: int
     ante_amount: int
     status: str
-    winner_player_id: Optional[str] = None
     pot_amount: int
+    street: str
+    acting_player_id: Optional[str] = None
+    current_highest_bet: int
+    minimum_raise_amount: int
+    is_action_closed: bool
+    players: list[RoundPlayerResponse] = Field(default_factory=list)
+    payouts: list[PayoutResponse] = Field(default_factory=list)
     created_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
-
-class DeclareWinner(BaseModel):
-    winner_player_id: str = Field(..., min_length=1)
-
-class DeclareWinnerResponse(BaseModel):
-    round_id: str
-    winner_player_id: str
-    pot_amount: int
-    status: str
 
 class AdvanceBlinds(BaseModel):
     pass
@@ -54,6 +106,71 @@ class AdvanceBlindsResponse(BaseModel):
     big_blind: int
     ante: int
 
+class AdvanceStreetResponse(BaseModel):
+    action: str  # "NEXT_STREET" | "SETTLE_HAND" | "SHOWDOWN"
+    round_id: str
+    game_id: str
+    street: str
+    acting_player_id: Optional[str] = None
+    current_highest_bet: int
+    minimum_raise_amount: int
+    is_action_closed: bool
+    winning_player_id: Optional[str] = None
+    players: list[RoundPlayerResponse] = Field(default_factory=list)
+
 class EndGameResponse(BaseModel):
     game_id: str
     status: str
+
+
+# ---------- Dealer correction schemas ----------
+
+class ReverseActionRequest(BaseModel):
+    original_entry_id: str = Field(..., min_length=1)
+    dealer_id: Optional[str] = None
+    reason: Optional[str] = None
+
+class AdjustStackRequest(BaseModel):
+    player_id: str = Field(..., min_length=1)
+    amount: int  # positive = add chips, negative = remove chips
+    dealer_id: Optional[str] = None
+    reason: Optional[str] = None
+
+class ReopenHandRequest(BaseModel):
+    dealer_id: Optional[str] = None
+    reason: Optional[str] = None
+
+class CorrectPayoutRequest(BaseModel):
+    old_player_id: str = Field(..., min_length=1)
+    old_amount: int = Field(..., ge=0)
+    new_player_id: str = Field(..., min_length=1)
+    new_amount: int = Field(..., ge=0)
+    dealer_id: Optional[str] = None
+    reason: Optional[str] = None
+
+class LedgerEntryResponse(BaseModel):
+    entry_id: str
+    round_id: str
+    entry_type: str
+    player_id: Optional[str] = None
+    amount: Optional[int] = None
+    detail: Optional[dict] = None
+    original_entry_id: Optional[str] = None
+    dealer_id: Optional[str] = None
+    created_at: Optional[datetime] = None
+
+class PlayerSnapshotResponse(BaseModel):
+    player_id: str
+    stack_adjustment: int
+    total_committed: int
+    total_won: int
+
+class HandStateResponse(BaseModel):
+    round_id: str
+    pot_total: int
+    is_completed: bool
+    is_reopened: bool
+    reversed_entry_ids: list[str]
+    payout_corrections: list[dict]
+    entry_count: int
+    players: list[PlayerSnapshotResponse]

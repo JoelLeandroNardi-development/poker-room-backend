@@ -135,11 +135,6 @@ class RabbitPublisher:
             )
             raise
 
-async def rabbit_connect(cfg: RabbitConfig) -> aio_pika.RobustConnection | None:
-    if not cfg.url:
-        return None
-    return await aio_pika.connect_robust(cfg.url)
-
 def create_publisher(*, required: bool = True):
     cfg = RabbitConfig.from_env(required=required)
     pub = RabbitPublisher(cfg)

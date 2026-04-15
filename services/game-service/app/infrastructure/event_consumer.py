@@ -1,39 +1,20 @@
 from __future__ import annotations
 
-from sqlalchemy import select
 import aio_pika
 
-from ..domain.constants import BetEventType, DataKey, EventKey, RoundStatus
+from ..domain.constants import EventKey
 from .config import (
     DEFAULT_MAX_RETRIES, DEFAULT_PREFETCH, DEFAULT_RETRY_DELAY_MS,
     DLQ_QUEUE, QUEUE_NAME, RETRY_QUEUE, ROUTING_KEYS,
     SERVICE_LOG_PREFIX, SERVICE_NAME,
 )
-from .db import SessionLocal
 from .messaging import EXCHANGE_NAME, RABBIT_URL, publisher
-from ..domain.models import Round
 from shared.core.messaging.consumer import run_consumer_with_retry_dlq
 
 async def process_event(payload: dict):
     event_type = payload.get(EventKey.EVENT_TYPE)
-    data = payload.get(EventKey.DATA) or {}
-    round_id = data.get(DataKey.ROUND_ID)
-
-    if event_type not in ROUTING_KEYS or not round_id:
+    if event_type not in ROUTING_KEYS:
         return
-
-    async with SessionLocal() as db:
-        res = await db.execute(select(Round).where(Round.round_id == round_id))
-        game_round = res.scalar_one_or_none()
-        if not game_round:
-            return
-
-        if event_type == BetEventType.POT_UPDATED:
-            if game_round.status == RoundStatus.ACTIVE:
-                pot_amount = data.get(DataKey.POT_AMOUNT, 0)
-                game_round.pot_amount = pot_amount
-
-        await db.commit()
 
 async def start_consumer():
     if not RABBIT_URL:

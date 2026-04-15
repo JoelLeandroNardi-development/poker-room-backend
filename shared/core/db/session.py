@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+from contextlib import asynccontextmanager
 from typing import AsyncGenerator
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
@@ -22,3 +23,22 @@ def make_get_db(SessionLocal):
             yield session
 
     return get_db
+
+
+@asynccontextmanager
+async def atomic(session: AsyncSession):
+    """Execute a block inside an explicit SAVEPOINT (nested transaction).
+
+    On success the savepoint is released.  On any exception it is
+    rolled back so the outer session stays clean.
+
+    Usage::
+
+        async with atomic(db):
+            db.add(row_a)
+            db.add(row_b)
+            # both flushed together; rolled back on error
+        await db.commit()          # caller commits the outer txn
+    """
+    async with session.begin_nested():
+        yield session

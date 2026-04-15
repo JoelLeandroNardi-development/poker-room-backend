@@ -1,13 +1,13 @@
 from __future__ import annotations
 
-from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..mappers import bet_to_response
 from ...domain.constants import BetAction
 from ...domain.models import Bet
-from ...domain.schemas import BetResponse, PotResponse, PlayerBetSummary
 from ...infrastructure.repository import get_bets_for_round, get_pot_total
+from shared.schemas.bets import BetResponse, PotResponse, PlayerBetSummary
+
 
 class BetQueryService:
     def __init__(self, db: AsyncSession):

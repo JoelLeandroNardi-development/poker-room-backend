@@ -3,4 +3,3 @@ CREATE DATABASE auth_db;
 CREATE DATABASE user_db;
 CREATE DATABASE room_db;
 CREATE DATABASE game_db;
-CREATE DATABASE betting_db;

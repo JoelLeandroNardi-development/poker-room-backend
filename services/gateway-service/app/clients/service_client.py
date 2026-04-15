@@ -7,34 +7,43 @@ from ..config import (
     USER_SERVICE_URL,
     ROOM_SERVICE_URL,
     GAME_SERVICE_URL,
-    BETTING_SERVICE_URL,
 )
 
 DEFAULT_TIMEOUT = 10.0
 
 class ServiceClient:
+    """Thin async HTTP client wrapping a persistent httpx.AsyncClient."""
+
     def __init__(self, base_url: str, timeout: float = DEFAULT_TIMEOUT):
         self.base_url = base_url
         self.timeout = timeout
+        self._client: httpx.AsyncClient | None = None
+
+    def _get_client(self) -> httpx.AsyncClient:
+        if self._client is None or self._client.is_closed:
+            self._client = httpx.AsyncClient(
+                base_url=self.base_url, timeout=self.timeout,
+            )
+        return self._client
+
+    async def close(self) -> None:
+        if self._client and not self._client.is_closed:
+            await self._client.aclose()
+            self._client = None
 
     async def get(self, path: str, **kwargs) -> httpx.Response:
-        async with httpx.AsyncClient(base_url=self.base_url, timeout=self.timeout) as client:
-            return await client.get(path, **kwargs)
+        return await self._get_client().get(path, **kwargs)
 
     async def post(self, path: str, **kwargs) -> httpx.Response:
-        async with httpx.AsyncClient(base_url=self.base_url, timeout=self.timeout) as client:
-            return await client.post(path, **kwargs)
+        return await self._get_client().post(path, **kwargs)
 
     async def put(self, path: str, **kwargs) -> httpx.Response:
-        async with httpx.AsyncClient(base_url=self.base_url, timeout=self.timeout) as client:
-            return await client.put(path, **kwargs)
+        return await self._get_client().put(path, **kwargs)
 
     async def delete(self, path: str, **kwargs) -> httpx.Response:
-        async with httpx.AsyncClient(base_url=self.base_url, timeout=self.timeout) as client:
-            return await client.delete(path, **kwargs)
+        return await self._get_client().delete(path, **kwargs)
 
 auth_client = ServiceClient(AUTH_SERVICE_URL)
 user_client = ServiceClient(USER_SERVICE_URL)
 room_client = ServiceClient(ROOM_SERVICE_URL)
 game_client = ServiceClient(GAME_SERVICE_URL)
-betting_client = ServiceClient(BETTING_SERVICE_URL)

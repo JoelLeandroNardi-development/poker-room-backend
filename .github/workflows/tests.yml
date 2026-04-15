@@ -1,0 +1,180 @@
+name: Tests
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  PYTHONPATH: ${{ github.workspace }}
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: poker_test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+      rabbitmq:
+        image: rabbitmq:3.12-management
+        env:
+          RABBITMQ_DEFAULT_USER: guest
+          RABBITMQ_DEFAULT_PASS: guest
+        options: >-
+          --health-cmd "rabbitmq-diagnostics -q ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5672:5672
+          - 15672:15672
+
+    steps:
+    - uses: actions/checkout@v5
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version-file: .python-version
+        cache: 'pip'
+        cache-dependency-path: |
+          .python-version
+          requirements-test.txt
+          shared/pyproject.toml
+          services/*/requirements.txt
+
+    - name: Show Python version
+      run: python -VV
+
+    - name: Install test dependencies
+      run: |
+        python -m pip install --upgrade pip setuptools wheel
+        python -m pip install -r requirements-test.txt
+
+    - name: Install shared module
+      run: |
+        cd shared
+        python -m pip install -e ".[test]"
+        cd ..
+
+    - name: Install service dependencies
+      run: |
+        for service in services/*/; do
+          if [ -f "$service/requirements.txt" ]; then
+            python -m pip install -r "$service/requirements.txt"
+          fi
+        done
+
+    - name: Lint with flake8 (if configured)
+      run: |
+        # First check if flake8 is installed, otherwise skip
+        python -m pip list | grep -q flake8 || exit 0
+        flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
+      continue-on-error: true
+
+    - name: Run unit tests
+      run: pytest tests/unit/ -v --cov=shared --cov=services --cov-report=xml --cov-report=term-missing
+      env:
+        BCRYPT_ROUNDS: "4"
+        JWT_SECRET: test-secret-key-for-ci
+        JWT_ALGORITHM: HS256
+        AUTH_DB: "sqlite+aiosqlite:///:memory:"
+        GAME_DB: "sqlite+aiosqlite:///:memory:"
+        ROOM_DB: "sqlite+aiosqlite:///:memory:"
+        USER_DB: "sqlite+aiosqlite:///:memory:"
+        RABBIT_URL: amqp://guest:guest@localhost:5672/
+        EXCHANGE_NAME: test_exchange
+
+    - name: Run integration tests
+      if: hashFiles('tests/integration/**/*.py') != hashFiles('tests/integration/__init__.py')
+      run: pytest tests/integration/ -v --cov=shared --cov=services --cov-report=xml --cov-report=term-missing --cov-append
+      env:
+        BCRYPT_ROUNDS: "4"
+        DATABASE_URL: postgresql+asyncpg://test:test@localhost:5432/poker_test
+        RABBIT_URL: amqp://guest:guest@localhost:5672/
+        JWT_SECRET: test-secret-key-for-ci
+
+    - name: Upload coverage to Codecov
+      uses: codecov/codecov-action@v5
+      with:
+        files: ./coverage.xml
+        flags: unittests
+        name: codecov-umbrella
+        fail_ci_if_error: false
+
+    - name: Generate coverage report
+      if: always()
+      run: |
+        python -m coverage report
+        python -m coverage html
+
+    - name: Upload coverage report
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: coverage-report
+        path: htmlcov/
+
+  markers-check:
+    runs-on: ubuntu-latest
+    env:
+      PYTHONPATH: ${{ github.workspace }}
+      JWT_SECRET: test-secret-key-for-ci
+      AUTH_DB: "sqlite+aiosqlite:///:memory:"
+      GAME_DB: "sqlite+aiosqlite:///:memory:"
+      ROOM_DB: "sqlite+aiosqlite:///:memory:"
+      USER_DB: "sqlite+aiosqlite:///:memory:"
+      RABBIT_URL: amqp://guest:guest@localhost:5672/
+      EXCHANGE_NAME: test_exchange
+    steps:
+    - uses: actions/checkout@v5
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version-file: .python-version
+        cache: 'pip'
+        cache-dependency-path: |
+          .python-version
+          requirements-test.txt
+          shared/pyproject.toml
+          services/*/requirements.txt
+
+    - name: Show Python version
+      run: python -VV
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip setuptools wheel
+        python -m pip install -r requirements-test.txt
+        cd shared && python -m pip install -e ".[test]" && cd ..
+        for service in services/*/; do
+          if [ -f "$service/requirements.txt" ]; then
+            python -m pip install -r "$service/requirements.txt"
+          fi
+        done
+
+    - name: Verify test collection
+      run: |
+        echo "=== Collecting all tests ==="
+        pytest --collect-only -q tests/
+        echo ""
+        echo "=== Unit test structure ==="
+        pytest --collect-only -q tests/unit/ | tail -1
+        echo "=== Integration test structure ==="
+        pytest --collect-only -q tests/integration/ | tail -1

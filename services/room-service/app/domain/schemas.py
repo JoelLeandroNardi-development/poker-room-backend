@@ -8,6 +8,5 @@ from shared.schemas.rooms import (
     BlindLevelResponse,
     RoomDetailResponse,
     UpdateChips,
-    EliminatePlayer,
     DeleteRoomResponse,
 )

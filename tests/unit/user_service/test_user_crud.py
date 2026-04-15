@@ -92,7 +92,7 @@ class TestUserQueryService:
 
         async with user_db_module.SessionLocal() as db:
             svc = user_query_module.UserQueryService(db)
-            result = await svc.list_users()
+            result = await svc.list_users(limit=50, offset=0)
         assert len(result) >= 2
 
     async def test_get_user_by_email(self, user_db_module, user_models_module, user_query_module):

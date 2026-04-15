@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 
+from .clients.service_client import auth_client, user_client, room_client, game_client
 from .config import SERVICE_NAME
 from .routes.auth_routes import router as auth_router
 from .routes.user_routes import router as user_router
@@ -11,7 +14,13 @@ from .routes.game_routes import router as game_router
 from .routes.round_routes import router as round_router
 from .routes.bet_routes import router as bet_router
 
-app = FastAPI(title="Poker Room Gateway")
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    yield
+    for client in (auth_client, user_client, room_client, game_client):
+        await client.close()
+
+app = FastAPI(title="Poker Room Gateway", lifespan=lifespan)
 
 app.include_router(auth_router)
 app.include_router(user_router)

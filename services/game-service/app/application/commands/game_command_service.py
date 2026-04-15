@@ -4,25 +4,32 @@ import os
 import uuid
 from datetime import datetime, timezone
 
+import httpx
 from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..mappers import game_to_response, round_to_response
+from ..mappers import game_to_response, round_to_response, payout_to_response
 from ...domain.constants import (
-    DataKey, ErrorMessage, GameEventType, GameStatus, RoundStatus,
+    DataKey, ErrorMessage, GameEventType, GameStatus, RoundStatus, Street,
+    StreetAdvanceAction,
 )
 from ...domain.events import build_event
-from ...domain.models import Game, OutboxEvent, Round
+from ...domain.models import Game, OutboxEvent, Round, RoundPlayer, RoundPayout
 from ...domain.schemas import (
-    GameResponse, RoundResponse, StartGame,
+    GameResponse, RoundResponse, RoundPlayerResponse, StartGame,
     DeclareWinner, DeclareWinnerResponse,
-    AdvanceBlindsResponse, EndGameResponse,
+    ResolveHandRequest, ResolveHandResponse,
+    AdvanceBlindsResponse, AdvanceStreetResponse, EndGameResponse,
 )
+from ...domain.blind_posting import SeatPlayer, post_blinds_and_antes
+from ...domain.street_progression import PlayerSeat, evaluate_street_end
 from ...infrastructure.repository import (
-    count_rounds, get_active_game_for_room, get_active_round, get_latest_round,
+    count_rounds, get_active_game_for_room, get_active_round,
+    get_round_players, get_round_payouts,
 )
 from shared.core.outbox.helpers import add_outbox_event
 from shared.core.db.crud import fetch_or_404
+from shared.core.db.session import atomic
 
 ROOM_SERVICE_URL = os.getenv("ROOM_SERVICE_URL", "http://room-service:8000")
 
@@ -31,7 +38,6 @@ class GameCommandService:
         self.db = db
 
     async def _fetch_room_config(self, room_id: str) -> dict:
-        import httpx
         async with httpx.AsyncClient(timeout=10.0) as client:
             resp = await client.get(f"{ROOM_SERVICE_URL}/rooms/{room_id}")
             if resp.status_code == 404:
@@ -63,30 +69,31 @@ class GameCommandService:
         game_id = str(uuid.uuid4())
         now = datetime.now(timezone.utc)
 
-        game = Game(
-            game_id=game_id,
-            room_id=data.room_id,
-            status=GameStatus.ACTIVE,
-            current_blind_level=1,
-            level_started_at=now,
-            current_dealer_seat=dealer_seat,
-            current_small_blind_seat=sb_seat,
-            current_big_blind_seat=bb_seat,
-        )
-        self.db.add(game)
+        async with atomic(self.db):
+            game = Game(
+                game_id=game_id,
+                room_id=data.room_id,
+                status=GameStatus.ACTIVE,
+                current_blind_level=1,
+                level_started_at=now,
+                current_dealer_seat=dealer_seat,
+                current_small_blind_seat=sb_seat,
+                current_big_blind_seat=bb_seat,
+            )
+            self.db.add(game)
 
-        event = build_event(
-            GameEventType.STARTED,
-            {
-                DataKey.GAME_ID: game_id,
-                DataKey.ROOM_ID: data.room_id,
-                DataKey.DEALER_SEAT: dealer_seat,
-                DataKey.SMALL_BLIND_SEAT: sb_seat,
-                DataKey.BIG_BLIND_SEAT: bb_seat,
-                DataKey.BLIND_LEVEL: 1,
-            },
-        )
-        add_outbox_event(self.db, OutboxEvent, event)
+            event = build_event(
+                GameEventType.STARTED,
+                {
+                    DataKey.GAME_ID: game_id,
+                    DataKey.ROOM_ID: data.room_id,
+                    DataKey.DEALER_SEAT: dealer_seat,
+                    DataKey.SMALL_BLIND_SEAT: sb_seat,
+                    DataKey.BIG_BLIND_SEAT: bb_seat,
+                    DataKey.BLIND_LEVEL: 1,
+                },
+            )
+            add_outbox_event(self.db, OutboxEvent, event)
 
         await self.db.commit()
         await self.db.refresh(game)
@@ -123,44 +130,116 @@ class GameCommandService:
 
         round_id = str(uuid.uuid4())
 
-        game_round = Round(
-            round_id=round_id,
-            game_id=game_id,
-            round_number=round_number,
-            dealer_seat=game.current_dealer_seat,
+        small_blind = current_level["small_blind"]
+        big_blind = current_level["big_blind"]
+        ante = current_level.get("ante", 0)
+
+        players = room_config.get("players", [])
+        active_players = sorted(
+            [p for p in players if p["is_active"] and not p["is_eliminated"]],
+            key=lambda p: p["seat_number"],
+        )
+
+        # Determine first-to-act: player after big blind
+        active_seats = [p["seat_number"] for p in active_players]
+        bb_seat = game.current_big_blind_seat
+        if bb_seat in active_seats:
+            bb_idx = active_seats.index(bb_seat)
+            first_to_act_idx = (bb_idx + 1) % len(active_seats)
+        else:
+            first_to_act_idx = 0
+
+        first_to_act_seat = active_seats[first_to_act_idx]
+
+        # ── Post forced bets (blinds + antes) — pure computation ────
+        seat_players = [
+            SeatPlayer(
+                player_id=p["player_id"],
+                seat_number=p["seat_number"],
+                stack=p.get("chip_count", 0),
+            )
+            for p in active_players
+        ]
+
+        posting = post_blinds_and_antes(
+            players=seat_players,
             small_blind_seat=game.current_small_blind_seat,
             big_blind_seat=game.current_big_blind_seat,
-            small_blind_amount=current_level["small_blind"],
-            big_blind_amount=current_level["big_blind"],
-            ante_amount=current_level.get("ante", 0),
-            status=RoundStatus.ACTIVE,
-            pot_amount=0,
+            small_blind_amount=small_blind,
+            big_blind_amount=big_blind,
+            ante_amount=ante,
         )
-        self.db.add(game_round)
 
-        event = build_event(
-            GameEventType.ROUND_STARTED,
-            {
-                DataKey.GAME_ID: game_id,
-                DataKey.ROOM_ID: game.room_id,
-                DataKey.ROUND_ID: round_id,
-                DataKey.ROUND_NUMBER: round_number,
-                DataKey.DEALER_SEAT: game.current_dealer_seat,
-                DataKey.SMALL_BLIND_SEAT: game.current_small_blind_seat,
-                DataKey.BIG_BLIND_SEAT: game.current_big_blind_seat,
-                DataKey.SMALL_BLIND_AMOUNT: current_level["small_blind"],
-                DataKey.BIG_BLIND_AMOUNT: current_level["big_blind"],
-                DataKey.ANTE_AMOUNT: current_level.get("ante", 0),
-            },
-        )
-        add_outbox_event(self.db, OutboxEvent, event)
+        # ── Atomic write: round + players + outbox ──────────────────
+        async with atomic(self.db):
+            game_round = Round(
+                round_id=round_id,
+                game_id=game_id,
+                round_number=round_number,
+                dealer_seat=game.current_dealer_seat,
+                small_blind_seat=game.current_small_blind_seat,
+                big_blind_seat=game.current_big_blind_seat,
+                small_blind_amount=small_blind,
+                big_blind_amount=big_blind,
+                ante_amount=ante,
+                status=RoundStatus.ACTIVE,
+                pot_amount=0,
+                street=Street.PRE_FLOP,
+                current_highest_bet=big_blind,
+                minimum_raise_amount=big_blind,
+                is_action_closed=False,
+            )
+            self.db.add(game_round)
+
+            round_players: list[RoundPlayer] = []
+            first_acting_player_id: str | None = None
+
+            for pp in posting.players:
+                rp = RoundPlayer(
+                    round_id=round_id,
+                    player_id=pp.player_id,
+                    seat_number=pp.seat_number,
+                    stack_remaining=pp.stack_remaining,
+                    committed_this_street=pp.committed_this_street,
+                    committed_this_hand=pp.committed_this_hand,
+                    has_folded=False,
+                    is_all_in=pp.is_all_in,
+                    is_active_in_hand=True,
+                )
+                round_players.append(rp)
+                self.db.add(rp)
+
+                if pp.seat_number == first_to_act_seat:
+                    first_acting_player_id = pp.player_id
+
+            game_round.acting_player_id = first_acting_player_id
+            game_round.pot_amount = posting.pot_total
+            game_round.current_highest_bet = posting.current_highest_bet
+
+            event = build_event(
+                GameEventType.ROUND_STARTED,
+                {
+                    DataKey.GAME_ID: game_id,
+                    DataKey.ROOM_ID: game.room_id,
+                    DataKey.ROUND_ID: round_id,
+                    DataKey.ROUND_NUMBER: round_number,
+                    DataKey.DEALER_SEAT: game.current_dealer_seat,
+                    DataKey.SMALL_BLIND_SEAT: game.current_small_blind_seat,
+                    DataKey.BIG_BLIND_SEAT: game.current_big_blind_seat,
+                    DataKey.SMALL_BLIND_AMOUNT: small_blind,
+                    DataKey.BIG_BLIND_AMOUNT: big_blind,
+                    DataKey.ANTE_AMOUNT: ante,
+                },
+            )
+            add_outbox_event(self.db, OutboxEvent, event)
 
         await self.db.commit()
         await self.db.refresh(game_round)
 
-        return round_to_response(game_round)
+        return round_to_response(game_round, round_players)
 
-    async def declare_winner(self, round_id: str, data: DeclareWinner) -> DeclareWinnerResponse:
+    async def resolve_hand(self, round_id: str, data: ResolveHandRequest) -> ResolveHandResponse:
+        # ── Phase 1: reads + validation (no DB writes) ──────────────
         game_round = await fetch_or_404(
             self.db, Round,
             filter_column=Round.round_id,
@@ -171,9 +250,25 @@ class GameCommandService:
         if game_round.status != RoundStatus.ACTIVE:
             raise HTTPException(status_code=400, detail=ErrorMessage.ROUND_NOT_ACTIVE)
 
-        game_round.winner_player_id = data.winner_player_id
-        game_round.status = RoundStatus.COMPLETED
-        game_round.completed_at = datetime.now(timezone.utc)
+        if not data.payouts:
+            raise HTTPException(status_code=400, detail=ErrorMessage.PAYOUT_EMPTY)
+
+        total_paid = sum(
+            w.amount for pot in data.payouts for w in pot.winners
+        )
+        if total_paid > game_round.pot_amount:
+            raise HTTPException(status_code=400, detail=ErrorMessage.PAYOUT_TOTAL_EXCEEDS_POT)
+
+        for pot in data.payouts:
+            pot_winner_total = sum(w.amount for w in pot.winners)
+            if pot_winner_total != pot.amount:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Pot {pot.pot_index} winners total {pot_winner_total} != pot amount {pot.amount}",
+                )
+
+        round_players = await get_round_players(self.db, round_id)
+        player_map = {rp.player_id: rp for rp in round_players}
 
         game = await fetch_or_404(
             self.db, Game,
@@ -182,6 +277,8 @@ class GameCommandService:
             detail=ErrorMessage.GAME_NOT_FOUND,
         )
 
+        # External HTTP call — must happen outside the write block so a
+        # network timeout cannot leave partial writes in the session.
         room_config = await self._fetch_room_config(game.room_id)
         active_seats = sorted([
             p["seat_number"]
@@ -189,34 +286,185 @@ class GameCommandService:
             if p["is_active"] and not p["is_eliminated"]
         ])
 
-        if len(active_seats) >= 2:
-            dealer_seat, sb_seat, bb_seat = self._rotate_positions(
-                active_seats, game.current_dealer_seat
-            )
-            game.current_dealer_seat = dealer_seat
-            game.current_small_blind_seat = sb_seat
-            game.current_big_blind_seat = bb_seat
-
-        event = build_event(
-            GameEventType.ROUND_COMPLETED,
+        payout_summary = [
             {
-                DataKey.GAME_ID: game_round.game_id,
-                DataKey.ROOM_ID: game.room_id,
-                DataKey.ROUND_ID: round_id,
-                DataKey.WINNER_PLAYER_ID: data.winner_player_id,
-                DataKey.POT_AMOUNT: game_round.pot_amount,
-            },
-        )
-        add_outbox_event(self.db, OutboxEvent, event)
+                "pot_index": pot.pot_index,
+                "pot_type": pot.pot_type,
+                "amount": pot.amount,
+                "winners": [
+                    {"player_id": w.player_id, "amount": w.amount}
+                    for w in pot.winners
+                ],
+            }
+            for pot in data.payouts
+        ]
+
+        # ── Phase 2: atomic write (SAVEPOINT) ───────────────────────
+        # Everything below either fully commits or fully rolls back:
+        # payout records + stack credits + round status + position
+        # rotation + outbox event.
+        payout_rows: list[RoundPayout] = []
+
+        async with atomic(self.db):
+            for pot in data.payouts:
+                for winner in pot.winners:
+                    row = RoundPayout(
+                        round_id=round_id,
+                        pot_index=pot.pot_index,
+                        pot_type=pot.pot_type,
+                        player_id=winner.player_id,
+                        amount=winner.amount,
+                    )
+                    self.db.add(row)
+                    payout_rows.append(row)
+
+                    rp = player_map.get(winner.player_id)
+                    if rp is not None:
+                        rp.stack_remaining += winner.amount
+
+            game_round.status = RoundStatus.COMPLETED
+            game_round.street = Street.SHOWDOWN
+            game_round.acting_player_id = None
+            game_round.is_action_closed = True
+            game_round.completed_at = datetime.now(timezone.utc)
+
+            if len(active_seats) >= 2:
+                dealer_seat, sb_seat, bb_seat = self._rotate_positions(
+                    active_seats, game.current_dealer_seat
+                )
+                game.current_dealer_seat = dealer_seat
+                game.current_small_blind_seat = sb_seat
+                game.current_big_blind_seat = bb_seat
+
+            event = build_event(
+                GameEventType.ROUND_COMPLETED,
+                {
+                    DataKey.GAME_ID: game_round.game_id,
+                    DataKey.ROOM_ID: game.room_id,
+                    DataKey.ROUND_ID: round_id,
+                    DataKey.POT_AMOUNT: game_round.pot_amount,
+                    DataKey.PAYOUTS: payout_summary,
+                },
+            )
+            add_outbox_event(self.db, OutboxEvent, event)
 
         await self.db.commit()
         await self.db.refresh(game_round)
 
-        return DeclareWinnerResponse(
+        return ResolveHandResponse(
             round_id=game_round.round_id,
-            winner_player_id=game_round.winner_player_id,
-            pot_amount=game_round.pot_amount,
             status=game_round.status,
+            pot_amount=game_round.pot_amount,
+            payouts=[payout_to_response(p) for p in payout_rows],
+        )
+
+    async def advance_street(self, round_id: str) -> AdvanceStreetResponse:
+        """Advance the round to the next street after current action is complete."""
+        game_round = await fetch_or_404(
+            self.db, Round,
+            filter_column=Round.round_id,
+            filter_value=round_id,
+            detail=ErrorMessage.ROUND_NOT_FOUND,
+        )
+
+        if game_round.status != RoundStatus.ACTIVE:
+            raise HTTPException(status_code=400, detail=ErrorMessage.ROUND_NOT_ACTIVE)
+
+        if game_round.street == Street.SHOWDOWN:
+            raise HTTPException(status_code=400, detail=ErrorMessage.ALREADY_AT_SHOWDOWN)
+
+        round_players = await get_round_players(self.db, round_id)
+        player_seats = [
+            PlayerSeat(
+                player_id=rp.player_id,
+                seat_number=rp.seat_number,
+                has_folded=rp.has_folded,
+                is_all_in=rp.is_all_in,
+                is_active_in_hand=rp.is_active_in_hand,
+            )
+            for rp in round_players
+        ]
+
+        result = evaluate_street_end(
+            current_street=game_round.street,
+            dealer_seat=game_round.dealer_seat,
+            big_blind_seat=game_round.big_blind_seat,
+            players=player_seats,
+        )
+
+        async with atomic(self.db):
+            if result.action == StreetAdvanceAction.SETTLE_HAND:
+                game_round.is_action_closed = True
+                game_round.acting_player_id = None
+
+            elif result.action == StreetAdvanceAction.SHOWDOWN:
+                game_round.street = Street.SHOWDOWN
+                game_round.is_action_closed = True
+                game_round.acting_player_id = None
+                game_round.current_highest_bet = 0
+                for rp in round_players:
+                    rp.committed_this_street = 0
+
+            elif result.action == StreetAdvanceAction.NEXT_STREET:
+                game_round.street = result.next_street
+                game_round.current_highest_bet = 0
+                game_round.minimum_raise_amount = game_round.big_blind_amount
+                game_round.acting_player_id = result.acting_player_id
+                game_round.is_action_closed = False
+                for rp in round_players:
+                    rp.committed_this_street = 0
+
+            event = build_event(
+                GameEventType.STREET_ADVANCED,
+                {
+                    DataKey.GAME_ID: game_round.game_id,
+                    DataKey.ROUND_ID: round_id,
+                    DataKey.STATUS: result.action,
+                },
+            )
+            add_outbox_event(self.db, OutboxEvent, event)
+
+        await self.db.commit()
+        await self.db.refresh(game_round)
+
+        from ..mappers import round_player_to_response
+
+        return AdvanceStreetResponse(
+            action=result.action,
+            round_id=game_round.round_id,
+            game_id=game_round.game_id,
+            street=game_round.street,
+            acting_player_id=game_round.acting_player_id,
+            current_highest_bet=game_round.current_highest_bet,
+            minimum_raise_amount=game_round.minimum_raise_amount,
+            is_action_closed=game_round.is_action_closed,
+            winning_player_id=result.winning_player_id,
+            players=[round_player_to_response(rp) for rp in round_players],
+        )
+
+    async def declare_winner(self, round_id: str, data: DeclareWinner) -> DeclareWinnerResponse:
+        """Legacy single-winner endpoint — delegates to resolve_hand."""
+        game_round = await fetch_or_404(
+            self.db, Round,
+            filter_column=Round.round_id,
+            filter_value=round_id,
+            detail=ErrorMessage.ROUND_NOT_FOUND,
+        )
+
+        request = ResolveHandRequest(
+            payouts=[{
+                "pot_index": 0,
+                "pot_type": "main",
+                "amount": game_round.pot_amount,
+                "winners": [{"player_id": data.winner_player_id, "amount": game_round.pot_amount}],
+            }]
+        )
+        result = await self.resolve_hand(round_id, request)
+        return DeclareWinnerResponse(
+            round_id=result.round_id,
+            winner_player_id=data.winner_player_id,
+            pot_amount=result.pot_amount,
+            status=result.status,
         )
 
     async def advance_blinds(self, game_id: str) -> AdvanceBlindsResponse:
@@ -242,21 +490,22 @@ class GameCommandService:
         if not new_level:
             raise HTTPException(status_code=400, detail=ErrorMessage.MAX_BLIND_LEVEL_REACHED)
 
-        game.current_blind_level = new_level_num
-        game.level_started_at = datetime.now(timezone.utc)
+        async with atomic(self.db):
+            game.current_blind_level = new_level_num
+            game.level_started_at = datetime.now(timezone.utc)
 
-        event = build_event(
-            GameEventType.BLINDS_INCREASED,
-            {
-                DataKey.GAME_ID: game_id,
-                DataKey.ROOM_ID: game.room_id,
-                DataKey.BLIND_LEVEL: new_level_num,
-                DataKey.SMALL_BLIND_AMOUNT: new_level["small_blind"],
-                DataKey.BIG_BLIND_AMOUNT: new_level["big_blind"],
-                DataKey.ANTE_AMOUNT: new_level.get("ante", 0),
-            },
-        )
-        add_outbox_event(self.db, OutboxEvent, event)
+            event = build_event(
+                GameEventType.BLINDS_INCREASED,
+                {
+                    DataKey.GAME_ID: game_id,
+                    DataKey.ROOM_ID: game.room_id,
+                    DataKey.BLIND_LEVEL: new_level_num,
+                    DataKey.SMALL_BLIND_AMOUNT: new_level["small_blind"],
+                    DataKey.BIG_BLIND_AMOUNT: new_level["big_blind"],
+                    DataKey.ANTE_AMOUNT: new_level.get("ante", 0),
+                },
+            )
+            add_outbox_event(self.db, OutboxEvent, event)
 
         await self.db.commit()
 
@@ -276,17 +525,18 @@ class GameCommandService:
             detail=ErrorMessage.GAME_NOT_FOUND,
         )
 
-        game.status = GameStatus.FINISHED
+        async with atomic(self.db):
+            game.status = GameStatus.FINISHED
 
-        event = build_event(
-            GameEventType.FINISHED,
-            {
-                DataKey.GAME_ID: game_id,
-                DataKey.ROOM_ID: game.room_id,
-                DataKey.STATUS: GameStatus.FINISHED,
-            },
-        )
-        add_outbox_event(self.db, OutboxEvent, event)
+            event = build_event(
+                GameEventType.FINISHED,
+                {
+                    DataKey.GAME_ID: game_id,
+                    DataKey.ROOM_ID: game.room_id,
+                    DataKey.STATUS: GameStatus.FINISHED,
+                },
+            )
+            add_outbox_event(self.db, OutboxEvent, event)
 
         await self.db.commit()
 

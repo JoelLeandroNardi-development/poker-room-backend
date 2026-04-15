@@ -1,0 +1,161 @@
+"""Pure-function hand state rebuilder from the ledger event log.
+
+Replays ``HandLedgerEntry`` rows in chronological order to produce
+the "current truth" for a hand.  Corrections override earlier entries
+without mutating them — the ledger stays immutable.
+
+Usage::
+
+    entries = await get_ledger_entries(db, round_id)
+    state   = rebuild_hand_state(entries)
+
+The returned ``HandState`` is a snapshot you can use for display,
+validation, or further corrections.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from typing import Any
+
+
+# ── Input (mirrors the DB columns needed for replay) ─────────────────
+
+@dataclass(frozen=True)
+class LedgerRow:
+    """Lightweight projection of a HandLedgerEntry row."""
+    entry_id: str
+    entry_type: str
+    player_id: str | None
+    amount: int | None
+    detail: dict[str, Any] | None
+    original_entry_id: str | None
+
+
+# ── Output ───────────────────────────────────────────────────────────
+
+@dataclass
+class PlayerSnapshot:
+    """Accumulated per-player state after replaying the ledger."""
+    player_id: str
+    stack_adjustment: int = 0     # net chips added/removed by corrections
+    total_committed: int = 0      # total chips put into the pot
+    total_won: int = 0            # total chips received from payouts
+    is_action_reversed: bool = False  # last action was reversed
+
+@dataclass
+class HandState:
+    """Aggregate snapshot of the hand rebuilt from the ledger."""
+    players: dict[str, PlayerSnapshot] = field(default_factory=dict)
+    pot_total: int = 0
+    is_completed: bool = False
+    is_reopened: bool = False
+    reversed_entry_ids: set[str] = field(default_factory=set)
+    payout_corrections: list[dict[str, Any]] = field(default_factory=list)
+    entry_count: int = 0
+
+    def net_pot(self) -> int:
+        """Pot total adjusted for reversed actions."""
+        return self.pot_total
+
+
+# ── Entry-type constants (avoids importing the full constants module) ─
+
+_BLIND_POSTED = "BLIND_POSTED"
+_ANTE_POSTED = "ANTE_POSTED"
+_BET_PLACED = "BET_PLACED"
+_PAYOUT_AWARDED = "PAYOUT_AWARDED"
+_ROUND_COMPLETED = "ROUND_COMPLETED"
+_ACTION_REVERSED = "ACTION_REVERSED"
+_STACK_ADJUSTED = "STACK_ADJUSTED"
+_HAND_REOPENED = "HAND_REOPENED"
+_PAYOUT_CORRECTED = "PAYOUT_CORRECTED"
+
+
+# ── Replay engine ────────────────────────────────────────────────────
+
+def _ensure_player(state: HandState, player_id: str) -> PlayerSnapshot:
+    if player_id not in state.players:
+        state.players[player_id] = PlayerSnapshot(player_id=player_id)
+    return state.players[player_id]
+
+
+def rebuild_hand_state(entries: list[LedgerRow]) -> HandState:
+    """Replay a chronological list of ledger entries → ``HandState``.
+
+    Parameters
+    ----------
+    entries:
+        **Must** be sorted by ``created_at`` ascending (insertion order).
+    """
+    state = HandState()
+
+    for e in entries:
+        state.entry_count += 1
+
+        # ── Forward actions ──────────────────────────────────────
+        if e.entry_type in (_BLIND_POSTED, _ANTE_POSTED, _BET_PLACED):
+            amt = e.amount or 0
+            if e.player_id:
+                ps = _ensure_player(state, e.player_id)
+                ps.total_committed += amt
+                ps.is_action_reversed = False
+            state.pot_total += amt
+
+        elif e.entry_type == _PAYOUT_AWARDED:
+            amt = e.amount or 0
+            if e.player_id:
+                ps = _ensure_player(state, e.player_id)
+                ps.total_won += amt
+
+        elif e.entry_type == _ROUND_COMPLETED:
+            state.is_completed = True
+
+        # ── Corrections ──────────────────────────────────────────
+        elif e.entry_type == _ACTION_REVERSED:
+            orig_id = e.original_entry_id
+            if orig_id:
+                state.reversed_entry_ids.add(orig_id)
+            amt = e.amount or 0
+            if e.player_id:
+                ps = _ensure_player(state, e.player_id)
+                ps.total_committed -= amt
+                ps.is_action_reversed = True
+            state.pot_total -= amt
+
+        elif e.entry_type == _STACK_ADJUSTED:
+            amt = e.amount or 0
+            if e.player_id:
+                ps = _ensure_player(state, e.player_id)
+                ps.stack_adjustment += amt
+
+        elif e.entry_type == _HAND_REOPENED:
+            state.is_completed = False
+            state.is_reopened = True
+
+        elif e.entry_type == _PAYOUT_CORRECTED:
+            detail = e.detail or {}
+            old_player = detail.get("old_player_id")
+            new_player = e.player_id
+            old_amount = detail.get("old_amount", 0)
+            new_amount = e.amount or 0
+
+            # Reverse old payout
+            if old_player:
+                ps_old = _ensure_player(state, old_player)
+                ps_old.total_won -= old_amount
+
+            # Apply new payout
+            if new_player:
+                ps_new = _ensure_player(state, new_player)
+                ps_new.total_won += new_amount
+
+            state.payout_corrections.append({
+                "entry_id": e.entry_id,
+                "old_player_id": old_player,
+                "old_amount": old_amount,
+                "new_player_id": new_player,
+                "new_amount": new_amount,
+            })
+
+    return state

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -36,7 +37,6 @@ class RoomQueryService:
     async def get_room_by_code(self, code: str) -> RoomDetailResponse:
         room = await get_room_by_code(self.db, code)
         if room is None:
-            from fastapi import HTTPException
             raise HTTPException(status_code=404, detail=ErrorMessage.INVALID_CODE)
 
         players = await get_players_in_room(self.db, room.room_id)

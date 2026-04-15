@@ -1,4 +1,4 @@
-.PHONY: up down build logs migrate-auth migrate-user migrate-room migrate-game migrate-betting migrate-all restart ps
+.PHONY: up down build logs migrate-auth migrate-user migrate-room migrate-game migrate-all restart ps
 
 up:
 	docker compose up -d --build
@@ -24,10 +24,7 @@ migrate-room:
 migrate-game:
 	docker compose exec game-service alembic upgrade head
 
-migrate-betting:
-	docker compose exec betting-service alembic upgrade head
-
-migrate-all: migrate-auth migrate-user migrate-room migrate-game migrate-betting
+migrate-all: migrate-auth migrate-user migrate-room migrate-game
 
 restart:
 	docker compose restart

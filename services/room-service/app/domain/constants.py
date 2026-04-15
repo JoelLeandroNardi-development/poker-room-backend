@@ -10,10 +10,8 @@ class RoomStatus(StrEnum):
 class RoomEventType(StrEnum):
     CREATED = "room.created"
     PLAYER_JOINED = "room.player_joined"
-    PLAYER_LEFT = "room.player_left"
     PLAYER_ELIMINATED = "room.player_eliminated"
     CHIPS_UPDATED = "room.chips_updated"
-    STARTED = "room.started"
 
 class EventKey(StrEnum):
     EVENT_ID = "event_id"

@@ -30,13 +30,6 @@ async def get_players_in_room(db: AsyncSession, room_id: str) -> list[RoomPlayer
     )
     return list(res.scalars().all())
 
-async def get_active_players_in_room(db: AsyncSession, room_id: str) -> list[RoomPlayer]:
-    res = await db.execute(
-        select(RoomPlayer)
-        .where(RoomPlayer.room_id == room_id, RoomPlayer.is_active == True, RoomPlayer.is_eliminated == False)
-        .order_by(RoomPlayer.seat_number.asc())
-    )
-    return list(res.scalars().all())
 
 async def count_players_in_room(db: AsyncSession, room_id: str) -> int:
     res = await db.execute(

@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import asyncio
-
 from .db import SessionLocal
 from .messaging import publisher
 from ..domain.models import OutboxEvent
