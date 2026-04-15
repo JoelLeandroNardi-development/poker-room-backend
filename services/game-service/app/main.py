@@ -7,7 +7,9 @@ from fastapi.responses import JSONResponse
 from starlette.requests import Request
 
 from .api.routes import router
-from .domain.exceptions import DomainError, NotFound, PlayerNotInHand
+from .domain.exceptions import (
+    DomainError, DuplicateActionError, NotFound, PlayerNotInHand, StaleStateError,
+)
 from .infrastructure.config import SERVICE_LOG_PREFIX, SERVICE_NAME
 from .infrastructure.messaging import publisher, RABBIT_URL, EXCHANGE_NAME
 from .infrastructure.outbox_worker import run_outbox_forever, outbox_stats
@@ -52,6 +54,10 @@ async def _domain_error_handler(_request: Request, exc: DomainError) -> JSONResp
         status = 404
     elif isinstance(exc, PlayerNotInHand) and "not in this hand" in exc.message:
         status = 404
+    elif isinstance(exc, StaleStateError):
+        status = 409
+    elif isinstance(exc, DuplicateActionError):
+        status = 409
     else:
         status = 400
     return JSONResponse(status_code=status, content={"detail": exc.message})

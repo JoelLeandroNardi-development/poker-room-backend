@@ -174,3 +174,68 @@ class HandStateResponse(BaseModel):
     payout_corrections: list[dict]
     entry_count: int
     players: list[PlayerSnapshotResponse]
+
+
+# ---------- Engine module response schemas ----------
+
+class ReplayStepResponse(BaseModel):
+    step_number: int
+    entry_id: str
+    entry_type: str
+    player_id: Optional[str] = None
+    amount: Optional[int] = None
+    pot_total: int
+    players: list[PlayerSnapshotResponse]
+
+class ReplayResponse(BaseModel):
+    round_id: str
+    entry_count: int
+    is_consistent: bool
+    steps: list[ReplayStepResponse]
+
+class TimelineStreetResponse(BaseModel):
+    name: str
+    actions: list[dict]
+
+class TimelineResponse(BaseModel):
+    round_id: str
+    streets: list[TimelineStreetResponse]
+    payouts: list[dict]
+    corrections: list[dict]
+
+class PotExplanation(BaseModel):
+    pot_index: int
+    pot_type: str
+    amount: int
+    contributors: list[str]
+    winners: list[dict]
+
+class SettlementExplanationResponse(BaseModel):
+    round_id: str
+    pots: list[PotExplanation]
+    narrative: list[str]
+
+class ConsistencyCheckResponse(BaseModel):
+    round_id: str
+    is_consistent: bool
+    discrepancies: list[str]
+
+
+# ---------- Table state contract ----------
+
+class LegalAction(BaseModel):
+    action: str
+    min_amount: Optional[int] = None
+    max_amount: Optional[int] = None
+
+class TableStateResponse(BaseModel):
+    round_id: str
+    game_id: str
+    street: str
+    pot_amount: int
+    acting_player_id: Optional[str] = None
+    current_highest_bet: int
+    is_action_closed: bool
+    state_version: int
+    legal_actions: list[LegalAction] = Field(default_factory=list)
+    players: list[RoundPlayerResponse] = Field(default_factory=list)

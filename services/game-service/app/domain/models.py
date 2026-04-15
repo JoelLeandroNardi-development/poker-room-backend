@@ -137,6 +137,7 @@ class Bet(Base):
     player_id = Column(String, nullable=False, index=True)
     action = Column(String, nullable=False)
     amount = Column(Integer, nullable=False, default=0)
+    idempotency_key = Column(String, nullable=True, unique=True, index=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     __table_args__ = (

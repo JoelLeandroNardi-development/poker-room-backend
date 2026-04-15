@@ -19,6 +19,7 @@ from .exceptions import (
     RaiseNotAllowed,
     RoundNotActive,
 )
+from .rules import RulesProfile, NO_LIMIT_HOLDEM
 
 
 @dataclass(frozen=True, slots=True)
@@ -58,7 +59,13 @@ class ValidatedAction:
     amount: int
 
 
-def validate_bet(ctx: HandContext, player_id: str, action: str, amount: int) -> ValidatedAction:
+def validate_bet(
+    ctx: HandContext,
+    player_id: str,
+    action: str,
+    amount: int,
+    rules: RulesProfile = NO_LIMIT_HOLDEM,
+) -> ValidatedAction:
     """Validate a betting action against the current hand state.
 
     Returns a ``ValidatedAction`` with the canonical action name and chip

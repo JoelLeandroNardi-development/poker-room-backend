@@ -1,4 +1,4 @@
-.PHONY: up down build logs migrate-auth migrate-user migrate-room migrate-game migrate-all restart ps
+.PHONY: up down build logs migrate-auth migrate-user migrate-room migrate-game migrate-all restart ps openapi
 
 up:
 	docker compose up -d --build
@@ -31,3 +31,7 @@ restart:
 
 ps:
 	docker compose ps
+
+openapi:
+	docker compose exec gateway-service python -c "import json; from app.main import app; print(json.dumps(app.openapi(), indent=2))" > openapi.json
+	@echo "Wrote openapi.json"

@@ -20,7 +20,12 @@ async def lifespan(app: FastAPI):
     for client in (auth_client, user_client, room_client, game_client):
         await client.close()
 
-app = FastAPI(title="Poker Room Gateway", lifespan=lifespan)
+app = FastAPI(
+    title="Poker Room API",
+    version="0.1.0",
+    description="Unified API gateway for the Poker Room platform.",
+    lifespan=lifespan,
+)
 
 app.include_router(auth_router)
 app.include_router(user_router)

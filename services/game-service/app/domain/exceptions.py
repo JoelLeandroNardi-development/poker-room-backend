@@ -130,3 +130,13 @@ class PayoutEmpty(DomainError):
 
 class PayoutMismatch(DomainError):
     """Pot winners total does not match pot amount."""
+
+
+# ── Concurrency / idempotency ────────────────────────────────────────
+
+class StaleStateError(DomainError):
+    """Optimistic concurrency conflict: state_version has advanced."""
+
+
+class DuplicateActionError(DomainError):
+    """Idempotency guard: this action has already been applied."""

@@ -20,4 +20,13 @@ from shared.schemas.games import (
     LedgerEntryResponse,
     HandStateResponse,
     PlayerSnapshotResponse,
+    ReplayStepResponse,
+    ReplayResponse,
+    TimelineStreetResponse,
+    TimelineResponse,
+    PotExplanation,
+    SettlementExplanationResponse,
+    ConsistencyCheckResponse,
+    LegalAction,
+    TableStateResponse,
 )

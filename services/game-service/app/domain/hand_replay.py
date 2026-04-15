@@ -23,7 +23,7 @@ from __future__ import annotations
 from copy import deepcopy
 from dataclasses import dataclass, field
 
-from .hand_ledger import HandState, LedgerRow, rebuild_hand_state
+from .hand_ledger import HandState, LedgerRow, apply_entry, rebuild_hand_state
 
 
 # ── Output types ─────────────────────────────────────────────────────
@@ -55,6 +55,9 @@ class ReplayResult:
 def replay_hand(entries: list[LedgerRow]) -> ReplayResult:
     """Replay a hand from its ledger entries, producing every intermediate state.
 
+    Uses incremental application — each entry is applied once to a running
+    ``HandState``, giving O(n) total work instead of quadratic.
+
     Parameters
     ----------
     entries:
@@ -66,24 +69,21 @@ def replay_hand(entries: list[LedgerRow]) -> ReplayResult:
         Contains one ``HandStep`` per entry plus the final ``HandState``.
     """
     result = ReplayResult(entry_count=len(entries))
+    state = HandState()
 
     for i, entry in enumerate(entries, start=1):
-        # Rebuild from the first *i* entries — guaranteed consistent
-        # because we use the same engine every time.
-        partial = rebuild_hand_state(entries[:i])
+        apply_entry(state, entry)
         step = HandStep(
             step_number=i,
             entry_id=entry.entry_id,
             entry_type=entry.entry_type,
             player_id=entry.player_id,
             amount=entry.amount,
-            state_after=deepcopy(partial),
+            state_after=deepcopy(state),
         )
         result.steps.append(step)
 
-    if entries:
-        result.final_state = rebuild_hand_state(entries)
-
+    result.final_state = deepcopy(state) if entries else HandState()
     return result
 
 

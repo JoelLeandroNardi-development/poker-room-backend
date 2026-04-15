@@ -7,6 +7,8 @@ class PlaceBet(BaseModel):
     player_id: str = Field(..., min_length=1)
     action: str = Field(..., min_length=1)
     amount: int = Field(0, ge=0)
+    idempotency_key: Optional[str] = None
+    expected_version: Optional[int] = None
 
 class BetResponse(BaseModel):
     bet_id: str

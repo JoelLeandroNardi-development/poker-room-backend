@@ -33,6 +33,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
+from .blind_posting import SeatPlayer, post_blinds_and_antes
+
 
 # ── Setup types ──────────────────────────────────────────────────────
 
@@ -243,28 +245,41 @@ def _post_blinds(
     round_players: list,
     scenario: HandScenario,
 ) -> None:
-    """Manually post blinds by modifying ORM objects."""
-    sb_seat = game_round.small_blind_seat
-    bb_seat = game_round.big_blind_seat
+    """Post blinds using the real ``post_blinds_and_antes()`` engine."""
+    seat_players = [
+        SeatPlayer(
+            player_id=rp.player_id,
+            seat_number=rp.seat_number,
+            stack=rp.stack_remaining,
+        )
+        for rp in round_players
+    ]
 
-    for rp in round_players:
-        if rp.seat_number == sb_seat:
-            amt = min(scenario.blinds.small, rp.stack_remaining)
-            rp.stack_remaining -= amt
-            rp.committed_this_street += amt
-            rp.committed_this_hand += amt
-            game_round.pot_amount += amt
-        elif rp.seat_number == bb_seat:
-            amt = min(scenario.blinds.big, rp.stack_remaining)
-            rp.stack_remaining -= amt
-            rp.committed_this_street += amt
-            rp.committed_this_hand += amt
-            game_round.pot_amount += amt
+    posting = post_blinds_and_antes(
+        players=seat_players,
+        small_blind_seat=game_round.small_blind_seat,
+        big_blind_seat=game_round.big_blind_seat,
+        small_blind_amount=scenario.blinds.small,
+        big_blind_amount=scenario.blinds.big,
+        ante_amount=scenario.blinds.ante,
+    )
 
-    game_round.current_highest_bet = scenario.blinds.big
+    # Write posting results back onto ORM-like objects
+    for pp in posting.players:
+        for rp in round_players:
+            if rp.player_id == pp.player_id:
+                rp.stack_remaining = pp.stack_remaining
+                rp.committed_this_street = pp.committed_this_street
+                rp.committed_this_hand = pp.committed_this_hand
+                rp.is_all_in = pp.is_all_in
+                break
+
+    game_round.pot_amount = posting.pot_total
+    game_round.current_highest_bet = posting.current_highest_bet
     game_round.minimum_raise_amount = scenario.blinds.big
 
     # Set first to act: left of big blind
+    bb_seat = game_round.big_blind_seat
     first_seat = _seat_left_of(bb_seat, scenario.players)
     for rp in round_players:
         if rp.seat_number == first_seat:

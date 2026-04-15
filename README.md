@@ -59,12 +59,16 @@ The game-service owns the complete Texas Hold'em lifecycle:
 - **Settlement** – atomic multi-winner settlement with chip distribution and hand ledger recording
 - **Payout validation** – submitted payouts validated against computed side-pot structure (eligible winners + amounts)
 - **Dealer corrections** – projection-safe: reverse action, adjust stack, reopen hand, correct payout (all mirror to ledger + mutable state)
-- **Hand replay engine** – pure `replay_hand()` rebuilds step-by-step hand state from ledger entries; `verify_consistency()` compares replayed vs live state for determinism proof
+- **Hand replay engine** – pure `replay_hand()` rebuilds step-by-step hand state from ledger entries using O(n) incremental replay; `verify_consistency()` compares replayed vs live state for determinism proof
 - **Settlement explainer** – `explain_settlement()` produces structured pot breakdown with contributor/eligibility/winner details and human-readable narrative
 - **Hand history timeline** – `build_hand_timeline()` reconstructs per-street action timeline with running pot totals, payouts, and corrections
-- **Scenario runner** – declarative DSL for scripting full hand scenarios (setup → blinds → actions → expectations) with automatic verification
-- **Rules profile** – `RulesProfile` dataclass encodes poker variant rules; `NO_LIMIT_HOLDEM` pre-built profile parameterizes the engine
+- **Scenario runner** – declarative DSL for scripting full hand scenarios using real blind posting engine (setup → blinds → actions → expectations) with automatic verification
+- **Rules profile** – `RulesProfile` dataclass encodes poker variant rules; `NO_LIMIT_HOLDEM` pre-built profile parameterizes validator, action pipeline, and round creation
 - **Engine versioning** – `engine_version` + `state_version` columns on Round for version tracking and optimistic concurrency
+- **Optimistic concurrency** – `state_version` compare-and-swap guard in `apply_action()` with `StaleStateError`; prevents stale-read race conditions
+- **Idempotency** – optional `idempotency_key` on bet commands; duplicate submissions return the original response instead of double-applying
+- **Table runtime** – pure state machine for multi-hand session lifecycle: seat management, sit-out/sit-in, blind clock, pause/resume
+- **Frontend table-state contract** – `GET /rounds/{id}/table-state` returns authoritative state with legal actions, pot, acting player, and `state_version`
 
 ## Quick start
 
@@ -107,7 +111,7 @@ python -m pytest tests/ -v
 python -m pytest tests/unit/ -v --cov=shared --cov=services --cov-report=term-missing
 ```
 
-**357 unit tests** covering:
+**391 unit tests** covering:
 
 | Area | Tests | Description |
 |---|---|---|
@@ -126,6 +130,7 @@ python -m pytest tests/unit/ -v --cov=shared --cov=services --cov-report=term-mi
 | Integration flows | 13 | Full betting rounds, street transitions, settlement, ledger rebuild, pure transitions |
 | Engine modules | 25 | Hand replay, settlement explainer, hand timeline, rules profile |
 | Scenario runner | 9 | Declarative hand scenarios: heads-up, 3-way, all-in, reraise, expectations |
+| New features | 34 | Incremental replay, optimistic concurrency, RulesProfile wiring, table runtime, blind clock, idempotency |
 | Room repository | 11 | Room CRUD, player management queries |
 | User CRUD | 5 | User creation, listing, lookup |
 

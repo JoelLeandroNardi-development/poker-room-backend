@@ -25,6 +25,7 @@ from ...domain.schemas import (
     AdvanceBlindsResponse, AdvanceStreetResponse, EndGameResponse,
 )
 from ...domain.blind_posting import SeatPlayer, post_blinds_and_antes
+from ...domain.rules import NO_LIMIT_HOLDEM
 from ...domain.street_progression import PlayerSeat, evaluate_street_end
 from ...infrastructure.repository import (
     count_rounds, get_active_game_for_room, get_active_round,
@@ -177,6 +178,7 @@ class GameCommandService:
                 current_highest_bet=big_blind,
                 minimum_raise_amount=big_blind,
                 is_action_closed=False,
+                engine_version=NO_LIMIT_HOLDEM.engine_version,
             )
             self.db.add(game_round)
 
@@ -359,6 +361,7 @@ class GameCommandService:
             game_round.acting_player_id = None
             game_round.is_action_closed = True
             game_round.completed_at = datetime.now(timezone.utc)
+            game_round.state_version = (game_round.state_version or 1) + 1
 
             append_ledger_entry(
                 self.db,
@@ -454,6 +457,8 @@ class GameCommandService:
                 game_round.last_aggressor_seat = None
                 for rp in round_players:
                     rp.committed_this_street = 0
+
+            game_round.state_version = (game_round.state_version or 1) + 1
 
             event = build_event(
                 GameEventType.STREET_ADVANCED,

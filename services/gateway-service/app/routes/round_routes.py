@@ -1,63 +1,93 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter
 
 from ..clients.service_client import game_client
 from ..utils.proxy import forward_response
+from shared.schemas.games import (
+    RoundResponse, ResolveHandRequest, ResolveHandResponse,
+    AdvanceStreetResponse, DeclareWinner, DeclareWinnerResponse,
+    LedgerEntryResponse, HandStateResponse,
+    ReverseActionRequest, AdjustStackRequest,
+    ReopenHandRequest, CorrectPayoutRequest,
+    ReplayResponse, TimelineResponse,
+    SettlementExplanationResponse, ConsistencyCheckResponse,
+    TableStateResponse,
+)
 
 router = APIRouter(prefix="/rounds", tags=["rounds"])
 
-@router.get("/{round_id}")
+@router.get("/{round_id}", response_model=RoundResponse)
 async def get_round(round_id: str):
     resp = await game_client.get(f"/rounds/{round_id}")
     return forward_response(resp)
 
-@router.post("/{round_id}/resolve")
-async def resolve_hand(round_id: str, request: Request):
-    body = await request.json()
-    resp = await game_client.post(f"/rounds/{round_id}/resolve", json=body)
+@router.post("/{round_id}/resolve", response_model=ResolveHandResponse)
+async def resolve_hand(round_id: str, data: ResolveHandRequest):
+    resp = await game_client.post(f"/rounds/{round_id}/resolve", json=data.model_dump())
     return forward_response(resp)
 
-@router.post("/{round_id}/advance-street")
+@router.post("/{round_id}/advance-street", response_model=AdvanceStreetResponse)
 async def advance_street(round_id: str):
     resp = await game_client.post(f"/rounds/{round_id}/advance-street")
     return forward_response(resp)
 
-@router.post("/{round_id}/winner")
-async def declare_winner(round_id: str, body: dict):
-    resp = await game_client.post(f"/rounds/{round_id}/winner", json=body)
+@router.post("/{round_id}/winner", response_model=DeclareWinnerResponse)
+async def declare_winner(round_id: str, data: DeclareWinner):
+    resp = await game_client.post(f"/rounds/{round_id}/winner", json=data.model_dump())
     return forward_response(resp)
 
-@router.get("/{round_id}/ledger")
+@router.get("/{round_id}/ledger", response_model=list[LedgerEntryResponse])
 async def get_ledger(round_id: str):
     resp = await game_client.get(f"/rounds/{round_id}/ledger")
     return forward_response(resp)
 
-@router.get("/{round_id}/hand-state")
+@router.get("/{round_id}/hand-state", response_model=HandStateResponse)
 async def get_hand_state(round_id: str):
     resp = await game_client.get(f"/rounds/{round_id}/hand-state")
     return forward_response(resp)
 
-@router.post("/{round_id}/corrections/reverse-action")
-async def reverse_action(round_id: str, request: Request):
-    body = await request.json()
-    resp = await game_client.post(f"/rounds/{round_id}/corrections/reverse-action", json=body)
+@router.get("/{round_id}/replay", response_model=ReplayResponse)
+async def get_replay(round_id: str):
+    resp = await game_client.get(f"/rounds/{round_id}/replay")
     return forward_response(resp)
 
-@router.post("/{round_id}/corrections/adjust-stack")
-async def adjust_stack(round_id: str, request: Request):
-    body = await request.json()
-    resp = await game_client.post(f"/rounds/{round_id}/corrections/adjust-stack", json=body)
+@router.get("/{round_id}/timeline", response_model=TimelineResponse)
+async def get_timeline(round_id: str):
+    resp = await game_client.get(f"/rounds/{round_id}/timeline")
     return forward_response(resp)
 
-@router.post("/{round_id}/corrections/reopen-hand")
-async def reopen_hand(round_id: str, request: Request):
-    body = await request.json()
-    resp = await game_client.post(f"/rounds/{round_id}/corrections/reopen-hand", json=body)
+@router.get("/{round_id}/settlement-explanation", response_model=SettlementExplanationResponse)
+async def get_settlement_explanation(round_id: str):
+    resp = await game_client.get(f"/rounds/{round_id}/settlement-explanation")
     return forward_response(resp)
 
-@router.post("/{round_id}/corrections/correct-payout")
-async def correct_payout(round_id: str, request: Request):
-    body = await request.json()
-    resp = await game_client.post(f"/rounds/{round_id}/corrections/correct-payout", json=body)
+@router.get("/{round_id}/consistency-check", response_model=ConsistencyCheckResponse)
+async def check_consistency(round_id: str):
+    resp = await game_client.get(f"/rounds/{round_id}/consistency-check")
+    return forward_response(resp)
+
+@router.get("/{round_id}/table-state", response_model=TableStateResponse)
+async def get_table_state(round_id: str):
+    resp = await game_client.get(f"/rounds/{round_id}/table-state")
+    return forward_response(resp)
+
+@router.post("/{round_id}/corrections/reverse-action", response_model=LedgerEntryResponse)
+async def reverse_action(round_id: str, data: ReverseActionRequest):
+    resp = await game_client.post(f"/rounds/{round_id}/corrections/reverse-action", json=data.model_dump(exclude_none=True))
+    return forward_response(resp)
+
+@router.post("/{round_id}/corrections/adjust-stack", response_model=LedgerEntryResponse)
+async def adjust_stack(round_id: str, data: AdjustStackRequest):
+    resp = await game_client.post(f"/rounds/{round_id}/corrections/adjust-stack", json=data.model_dump(exclude_none=True))
+    return forward_response(resp)
+
+@router.post("/{round_id}/corrections/reopen-hand", response_model=LedgerEntryResponse)
+async def reopen_hand(round_id: str, data: ReopenHandRequest):
+    resp = await game_client.post(f"/rounds/{round_id}/corrections/reopen-hand", json=data.model_dump(exclude_none=True))
+    return forward_response(resp)
+
+@router.post("/{round_id}/corrections/correct-payout", response_model=LedgerEntryResponse)
+async def correct_payout(round_id: str, data: CorrectPayoutRequest):
+    resp = await game_client.post(f"/rounds/{round_id}/corrections/correct-payout", json=data.model_dump(exclude_none=True))
     return forward_response(resp)

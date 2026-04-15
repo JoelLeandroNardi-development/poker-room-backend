@@ -7,7 +7,10 @@ if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
 from app.infrastructure.db import Base
-from app.domain.models import Game, Round, RoundPlayer, RoundPayout, OutboxEvent
+from app.domain.models import (
+    Game, Round, RoundPlayer, RoundPayout, Bet, HandLedgerEntry,
+    RoomSnapshot, RoomSnapshotPlayer, RoomSnapshotBlindLevel, OutboxEvent,
+)
 
 target_metadata = Base.metadata
 

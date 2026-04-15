@@ -24,6 +24,7 @@ def record_bet_action(
     player_id: str,
     action: str,
     amount: int,
+    idempotency_key: str | None = None,
 ) -> tuple[Bet, HandLedgerEntry]:
     """Create a Bet row and a BET_PLACED ledger entry, add to session.
 
@@ -41,6 +42,7 @@ def record_bet_action(
         player_id=player_id,
         action=action,
         amount=amount,
+        idempotency_key=idempotency_key,
     )
     db.add(bet)
 

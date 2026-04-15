@@ -14,6 +14,9 @@ COPY services/gateway-service/requirements.txt /app/requirements.txt
 RUN python -m pip install --no-cache-dir --upgrade pip setuptools wheel \
     && python -m pip install --no-cache-dir -r /app/requirements.txt
 
+COPY shared /app/shared
+RUN python -m pip install --no-cache-dir -e /app/shared
+
 COPY services/gateway-service/app /app/app
 
 ENV PYTHONPATH=/app

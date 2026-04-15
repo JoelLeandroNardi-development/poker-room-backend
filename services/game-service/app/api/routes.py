@@ -14,6 +14,8 @@ from ..domain.schemas import (
     AdvanceBlindsResponse, AdvanceStreetResponse, EndGameResponse,
     ReverseActionRequest, AdjustStackRequest, ReopenHandRequest,
     CorrectPayoutRequest, LedgerEntryResponse, HandStateResponse,
+    ReplayResponse, TimelineResponse, SettlementExplanationResponse,
+    ConsistencyCheckResponse, TableStateResponse,
 )
 from shared.schemas.bets import PlaceBet, BetResponse, PotResponse, PlayerBetSummary
 from ..infrastructure.db import SessionLocal
@@ -140,3 +142,26 @@ async def get_pot(round_id: str, db: AsyncSession = Depends(get_db)):
 @router.get("/bets/round/{round_id}/players", response_model=list[PlayerBetSummary])
 async def get_player_summaries(round_id: str, db: AsyncSession = Depends(get_db)):
     return await BetQueryService(db).get_player_summaries(round_id)
+
+
+# ── Engine module endpoints ──────────────────────────────────────────
+
+@router.get("/rounds/{round_id}/replay", response_model=ReplayResponse)
+async def get_replay(round_id: str, db: AsyncSession = Depends(get_db)):
+    return await GameQueryService(db).get_replay(round_id)
+
+@router.get("/rounds/{round_id}/timeline", response_model=TimelineResponse)
+async def get_timeline(round_id: str, db: AsyncSession = Depends(get_db)):
+    return await GameQueryService(db).get_timeline(round_id)
+
+@router.get("/rounds/{round_id}/settlement-explanation", response_model=SettlementExplanationResponse)
+async def get_settlement_explanation(round_id: str, db: AsyncSession = Depends(get_db)):
+    return await GameQueryService(db).get_settlement_explanation(round_id)
+
+@router.get("/rounds/{round_id}/consistency-check", response_model=ConsistencyCheckResponse)
+async def check_consistency(round_id: str, db: AsyncSession = Depends(get_db)):
+    return await GameQueryService(db).check_consistency(round_id)
+
+@router.get("/rounds/{round_id}/table-state", response_model=TableStateResponse)
+async def get_table_state(round_id: str, db: AsyncSession = Depends(get_db)):
+    return await GameQueryService(db).get_table_state(round_id)

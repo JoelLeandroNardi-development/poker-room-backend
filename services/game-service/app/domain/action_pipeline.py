@@ -19,7 +19,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from .constants import BetAction
+from .exceptions import StaleStateError
 from .models import Round, RoundPlayer
+from .rules import RulesProfile, NO_LIMIT_HOLDEM
 from .turn_engine import ActionSeat, next_to_act
 from .validator import HandContext, PlayerState, ValidatedAction, validate_bet
 
@@ -82,6 +84,7 @@ def transition_hand_state(
     action: str,
     amount: int,
     last_aggressor_seat: int | None,
+    rules: RulesProfile = NO_LIMIT_HOLDEM,
 ) -> HandTransition:
     """Validate an action and compute the full mutation plan.
 
@@ -109,7 +112,7 @@ def transition_hand_state(
         determination.
     """
     # ── 1. Validate ──────────────────────────────────────────────────
-    result: ValidatedAction = validate_bet(ctx, player_id, action, amount)
+    result: ValidatedAction = validate_bet(ctx, player_id, action, amount, rules=rules)
     effective_action = result.action
     effective_amount = result.amount
 
@@ -272,6 +275,9 @@ def _apply_transition(
         game_round.acting_player_id = rm.new_acting_player_id
         game_round.is_action_closed = False
 
+    # Bump optimistic-concurrency version on every mutation
+    game_round.state_version = (game_round.state_version or 1) + 1
+
 
 def apply_action(
     game_round: Round,
@@ -279,6 +285,8 @@ def apply_action(
     player_id: str,
     action: str,
     amount: int,
+    rules: RulesProfile = NO_LIMIT_HOLDEM,
+    expected_version: int | None = None,
 ) -> ApplyActionResult:
     """Validate *and* mutate round + player state for a single action.
 
@@ -288,12 +296,27 @@ def apply_action(
 
     The caller is responsible for wrapping this in a DB transaction and
     persisting the mutated ORM objects.
+
+    Parameters
+    ----------
+    expected_version:
+        If provided, the caller's last-known ``state_version``.
+        A mismatch raises ``StaleStateError`` for optimistic concurrency.
     """
+    if expected_version is not None:
+        current = game_round.state_version or 1
+        if current != expected_version:
+            raise StaleStateError(
+                f"Expected state_version={expected_version}, "
+                f"current={current}"
+            )
+
     ctx = _build_hand_context(game_round, round_players)
 
     transition = transition_hand_state(
         ctx, player_id, action, amount,
         last_aggressor_seat=game_round.last_aggressor_seat,
+        rules=rules,
     )
 
     _apply_transition(game_round, round_players, transition)
