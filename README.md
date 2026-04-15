@@ -59,6 +59,12 @@ The game-service owns the complete Texas Hold'em lifecycle:
 - **Settlement** – atomic multi-winner settlement with chip distribution and hand ledger recording
 - **Payout validation** – submitted payouts validated against computed side-pot structure (eligible winners + amounts)
 - **Dealer corrections** – projection-safe: reverse action, adjust stack, reopen hand, correct payout (all mirror to ledger + mutable state)
+- **Hand replay engine** – pure `replay_hand()` rebuilds step-by-step hand state from ledger entries; `verify_consistency()` compares replayed vs live state for determinism proof
+- **Settlement explainer** – `explain_settlement()` produces structured pot breakdown with contributor/eligibility/winner details and human-readable narrative
+- **Hand history timeline** – `build_hand_timeline()` reconstructs per-street action timeline with running pot totals, payouts, and corrections
+- **Scenario runner** – declarative DSL for scripting full hand scenarios (setup → blinds → actions → expectations) with automatic verification
+- **Rules profile** – `RulesProfile` dataclass encodes poker variant rules; `NO_LIMIT_HOLDEM` pre-built profile parameterizes the engine
+- **Engine versioning** – `engine_version` + `state_version` columns on Round for version tracking and optimistic concurrency
 
 ## Quick start
 
@@ -101,7 +107,7 @@ python -m pytest tests/ -v
 python -m pytest tests/unit/ -v --cov=shared --cov=services --cov-report=term-missing
 ```
 
-**323 unit tests** covering:
+**357 unit tests** covering:
 
 | Area | Tests | Description |
 |---|---|---|
@@ -118,6 +124,8 @@ python -m pytest tests/unit/ -v --cov=shared --cov=services --cov-report=term-mi
 | Action pipeline | 13 | Unified apply_action: mutation, turn progression, validation |
 | Payout validation | 7 | Side-pot eligibility, overpay rejection, split pots |
 | Integration flows | 13 | Full betting rounds, street transitions, settlement, ledger rebuild, pure transitions |
+| Engine modules | 25 | Hand replay, settlement explainer, hand timeline, rules profile |
+| Scenario runner | 9 | Declarative hand scenarios: heads-up, 3-way, all-in, reraise, expectations |
 | Room repository | 11 | Room CRUD, player management queries |
 | User CRUD | 5 | User creation, listing, lookup |
 
@@ -152,7 +160,7 @@ Tests run automatically on push/PR to `main` and `develop` via GitHub Actions. T
 │   ├── game-service/        # Full poker engine (rounds, betting, settlement)
 │   └── gateway-service/     # HTTP gateway with connection-pooled clients
 ├── tests/
-│   └── unit/                # 323 unit tests
+│   └── unit/                # 357 unit tests
 │   └── integration/         # Integration tests (placeholder)
 ├── docker-compose.yml
 ├── Makefile
@@ -160,6 +168,16 @@ Tests run automatically on push/PR to `main` and `develop` via GitHub Actions. T
 ```
 
 ## Changelog
+
+### Engine evolution — replay, explainer, scenarios (task 15)
+
+- **Hand replay engine** – new `domain/hand_replay.py`: pure `replay_hand()` rebuilds every intermediate `HandState` from ledger entries (step-by-step); `verify_consistency()` compares replayed state against live projection and returns discrepancy list
+- **Settlement explanation engine** – new `domain/settlement_explainer.py`: `explain_settlement()` produces structured `SettlementExplanation` with per-pot breakdown (contributors, eligible/ineligible players with reasons, winners, unclaimed amounts) and auto-generated human-readable narrative
+- **Hand history timeline** – new `domain/hand_history.py`: `build_hand_timeline()` reconstructs a `HandTimeline` organized by street with running pot totals, payouts, and corrections tracked separately
+- **Scenario runner framework** – new `domain/scenario_runner.py`: declarative `HandScenario` DSL (player setup → blind config → scripted actions → expectations) with `run_scenario()` that drives `apply_action` and verifies pot amounts, fold states, stack values, and error conditions
+- **Rules profile** – new `domain/rules.py`: frozen `RulesProfile` dataclass parameterizing the engine; `NO_LIMIT_HOLDEM` pre-built profile (betting structure, street sequence, raise rules, engine version)
+- **Engine versioning** – `engine_version` (string) and `state_version` (integer, ≥ 1) columns added to `Round` model with `CheckConstraint`; foundation for optimistic concurrency and version-tracked replays
+- **34 new tests** – `test_engine_modules.py` (25 tests: replay, consistency verification, settlement explainer, timeline, rules profile) + `test_scenarios.py` (9 tests: heads-up, 3-player, all-in, reraise, meta-tests)
 
 ### Hand engine refinement (task 14)
 

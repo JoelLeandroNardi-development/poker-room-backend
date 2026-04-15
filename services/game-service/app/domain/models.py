@@ -62,6 +62,10 @@ class Round(Base):
     is_action_closed = Column(Boolean, nullable=False, default=False)
     last_aggressor_seat = Column(Integer, nullable=True)
 
+    # --- Versioning / concurrency ---
+    engine_version = Column(String, nullable=False, default="0.15.0")
+    state_version = Column(Integer, nullable=False, default=1)
+
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     completed_at = Column(DateTime(timezone=True), nullable=True)
 
@@ -78,6 +82,7 @@ class Round(Base):
             f"street IN ({', '.join(repr(s.value) for s in Street)})",
             name="ck_rounds_street_enum",
         ),
+        CheckConstraint("state_version >= 1", name="ck_rounds_state_version_positive"),
     )
 
 
