@@ -27,18 +27,5 @@ def make_get_db(SessionLocal):
 
 @asynccontextmanager
 async def atomic(session: AsyncSession):
-    """Execute a block inside an explicit SAVEPOINT (nested transaction).
-
-    On success the savepoint is released.  On any exception it is
-    rolled back so the outer session stays clean.
-
-    Usage::
-
-        async with atomic(db):
-            db.add(row_a)
-            db.add(row_b)
-            # both flushed together; rolled back on error
-        await db.commit()          # caller commits the outer txn
-    """
     async with session.begin_nested():
         yield session

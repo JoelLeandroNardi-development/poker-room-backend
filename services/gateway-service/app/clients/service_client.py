@@ -12,7 +12,6 @@ from ..config import (
 DEFAULT_TIMEOUT = 10.0
 
 class ServiceClient:
-    """Thin async HTTP client wrapping a persistent httpx.AsyncClient."""
 
     CORRELATION_HEADER = "X-Correlation-ID"
 
@@ -34,7 +33,6 @@ class ServiceClient:
             self._client = None
 
     def _inject_correlation(self, kwargs: dict) -> dict:
-        """Forward X-Correlation-ID if available from caller-supplied headers."""
         return kwargs
 
     async def get(self, path: str, **kwargs) -> httpx.Response:

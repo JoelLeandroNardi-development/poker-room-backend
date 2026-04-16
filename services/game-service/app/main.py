@@ -56,7 +56,6 @@ app.include_router(router)
 
 @app.exception_handler(DomainError)
 async def _domain_error_handler(_request: Request, exc: DomainError) -> JSONResponse:
-    """Map domain exceptions to HTTP status codes at the API boundary."""
     if isinstance(exc, NotFound):
         status = 404
     elif isinstance(exc, PlayerNotInHand) and "not in this hand" in exc.message:

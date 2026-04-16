@@ -1,10 +1,3 @@
-"""Validate dealer-submitted payouts against the computed side-pot structure.
-
-This module bridges ``side_pots.calculate_side_pots`` and the
-``ResolveHandRequest`` data to ensure the dealer cannot award more
-chips from any pot than actually exist, and that only eligible players
-receive payouts.
-"""
 
 from __future__ import annotations
 
@@ -18,30 +11,6 @@ def validate_payouts_against_side_pots(
     submitted_payouts: list[dict],
     total_pot: int,
 ) -> list[Pot]:
-    """Validate submitted payouts against the computed pot structure.
-
-    Parameters
-    ----------
-    round_players :
-        All players in the round (ORM instances).
-    submitted_payouts :
-        List of dicts with ``pot_index``, ``amount``, and ``winners``
-        (each winner has ``player_id`` and ``amount``).
-    total_pot :
-        The round's total pot amount.
-
-    Returns
-    -------
-    list[Pot]
-        The computed pots (for informational / logging purposes).
-
-    Raises
-    ------
-    PayoutExceedsPot
-        If a submitted pot's total exceeds the computed pot's amount.
-    PayoutMismatch
-        If a winner is not eligible for the pot they're winning from.
-    """
     contributions = [
         PlayerContribution(
             player_id=rp.player_id,
@@ -57,7 +26,6 @@ def validate_payouts_against_side_pots(
     if not computed_pots:
         return computed_pots
 
-    # Build a lookup: pot_index → computed Pot
     computed_map: dict[int, Pot] = {p.pot_index: p for p in computed_pots}
 
     for submitted in submitted_payouts:

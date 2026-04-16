@@ -1,32 +1,3 @@
-"""Scenario runner framework for poker hand testing.
-
-Provides a declarative DSL for scripting full hand scenarios — from
-blind posting through betting rounds, street transitions, settlement,
-and corrections — then replaying them through the pure engine and
-verifying expectations.
-
-Usage::
-
-    scenario = HandScenario(
-        name="3-player squeeze play",
-        players=[
-            PlayerSetup(player_id="p1", seat=1, stack=1000),
-            PlayerSetup(player_id="p2", seat=2, stack=1000),
-            PlayerSetup(player_id="p3", seat=3, stack=1000),
-        ],
-        blinds=BlindSetup(small=10, big=20),
-        dealer_seat=1,
-    )
-    scenario.add_action("p2", "CALL", 20)
-    scenario.add_action("p3", "RAISE", 60)
-    scenario.add_action("p1", "FOLD", 0)
-    scenario.add_action("p2", "FOLD", 0)
-    scenario.expect_pot(50)  # 10 + 20 + 20 = 50 from P2, then P3 raise
-    scenario.expect_action_closed()
-
-    result = run_scenario(scenario, transition_hand_state)
-    assert result.passed
-"""
 
 from __future__ import annotations
 
@@ -36,11 +7,8 @@ from typing import Any, Callable
 from .blind_posting import SeatPlayer, post_blinds_and_antes
 
 
-# ── Setup types ──────────────────────────────────────────────────────
-
 @dataclass(frozen=True, slots=True)
 class PlayerSetup:
-    """Initial player configuration for a scenario."""
 
     player_id: str
     seat: int
@@ -49,18 +17,14 @@ class PlayerSetup:
 
 @dataclass(frozen=True, slots=True)
 class BlindSetup:
-    """Blind structure for a scenario."""
 
     small: int
     big: int
     ante: int = 0
 
 
-# ── Action / expectation types ───────────────────────────────────────
-
 @dataclass(frozen=True, slots=True)
 class ScriptedAction:
-    """A single player action in the scenario script."""
 
     player_id: str
     action: str
@@ -69,26 +33,21 @@ class ScriptedAction:
 
 @dataclass(frozen=True, slots=True)
 class Expectation:
-    """A condition to verify at a point in the scenario."""
 
-    check_type: str  # "pot", "action_closed", "player_stack", "player_folded", "error"
+    check_type: str
     args: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True, slots=True)
 class ExpectationResult:
-    """Result of evaluating a single expectation."""
 
     passed: bool
     expectation: Expectation
     message: str = ""
 
 
-# ── Scenario definition ─────────────────────────────────────────────
-
 @dataclass
 class HandScenario:
-    """Declarative hand scenario definition."""
 
     name: str
     players: list[PlayerSetup]
@@ -117,17 +76,13 @@ class HandScenario:
         )
 
     def expect_error(self, error_type: str) -> None:
-        """Expect the last action to raise a specific domain error."""
         self.expectations.append(
             Expectation("error", {"error_type": error_type})
         )
 
 
-# ── Scenario result ──────────────────────────────────────────────────
-
 @dataclass
 class ScenarioResult:
-    """Aggregated result of running a scenario."""
 
     scenario_name: str = ""
     passed: bool = True
@@ -140,34 +95,14 @@ class ScenarioResult:
         return [r for r in self.expectation_results if not r.passed]
 
 
-# ── Runner ───────────────────────────────────────────────────────────
-
 def run_scenario(
     scenario: HandScenario,
     apply_action_fn: Callable,
     Round: type,
     RoundPlayer: type,
 ) -> ScenarioResult:
-    """Execute a scenario through the ORM-level ``apply_action``.
-
-    Parameters
-    ----------
-    scenario:
-        The hand scenario to run.
-    apply_action_fn:
-        The ``apply_action`` function from ``action_pipeline``.
-    Round:
-        The ``Round`` ORM model class.
-    RoundPlayer:
-        The ``RoundPlayer`` ORM model class.
-
-    Returns
-    -------
-    ScenarioResult
-    """
     result = ScenarioResult(scenario_name=scenario.name)
 
-    # ── Build initial state ──────────────────────────────────────
     game_round = Round(
         round_id="scenario-round",
         game_id="scenario-game",
@@ -205,10 +140,8 @@ def run_scenario(
         )
         round_players.append(rp)
 
-    # ── Apply blinds first ───────────────────────────────────────
     _post_blinds(game_round, round_players, scenario)
 
-    # ── Execute scripted actions ─────────────────────────────────
     last_error = None
     for sa in scenario.actions:
         try:
@@ -221,7 +154,6 @@ def run_scenario(
             last_error = exc
             result.actions_applied += 1
 
-    # ── Evaluate expectations ────────────────────────────────────
     for exp in scenario.expectations:
         er = _evaluate(exp, game_round, round_players, last_error)
         result.expectation_results.append(er)
@@ -231,10 +163,7 @@ def run_scenario(
     return result
 
 
-# ── Helpers ──────────────────────────────────────────────────────────
-
 def _seat_left_of(seat: int, players: list[PlayerSetup]) -> int:
-    """Find the next occupied seat clockwise."""
     seats = sorted(p.seat for p in players)
     idx = seats.index(seat) if seat in seats else 0
     return seats[(idx + 1) % len(seats)]
@@ -245,7 +174,6 @@ def _post_blinds(
     round_players: list,
     scenario: HandScenario,
 ) -> None:
-    """Post blinds using the real ``post_blinds_and_antes()`` engine."""
     seat_players = [
         SeatPlayer(
             player_id=rp.player_id,
@@ -264,7 +192,6 @@ def _post_blinds(
         ante_amount=scenario.blinds.ante,
     )
 
-    # Write posting results back onto ORM-like objects
     for pp in posting.players:
         for rp in round_players:
             if rp.player_id == pp.player_id:
@@ -278,7 +205,6 @@ def _post_blinds(
     game_round.current_highest_bet = posting.current_highest_bet
     game_round.minimum_raise_amount = scenario.blinds.big
 
-    # Set first to act: left of big blind
     bb_seat = game_round.big_blind_seat
     first_seat = _seat_left_of(bb_seat, scenario.players)
     for rp in round_players:
@@ -293,7 +219,6 @@ def _evaluate(
     round_players: list,
     last_error: Exception | None,
 ) -> ExpectationResult:
-    """Evaluate one expectation against current state."""
     if exp.check_type == "pot":
         expected = exp.args["amount"]
         actual = game_round.pot_amount

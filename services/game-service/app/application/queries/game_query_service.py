@@ -82,10 +82,8 @@ class GameQueryService:
         payouts = await get_round_payouts(self.db, game_round.round_id)
         return round_to_response(game_round, players, payouts)
 
-    # ── Engine module queries ────────────────────────────────────
 
     async def _ledger_rows(self, round_id: str) -> list[LedgerRow]:
-        """Fetch ledger entries and project to pure domain rows."""
         entries = await get_ledger_entries(self.db, round_id)
         return [
             LedgerRow(

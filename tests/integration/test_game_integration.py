@@ -98,6 +98,22 @@ async def session(engine_and_tables):
 
 # ── Helpers ──────────────────────────────────────────────────────────
 
+def _make_game(models_mod, game_id=None, **overrides):
+    defaults = dict(
+        game_id=game_id or str(uuid.uuid4()),
+        room_id="test-room",
+        status="ACTIVE",
+        current_blind_level=1,
+        current_dealer_seat=1,
+        current_small_blind_seat=2,
+        current_big_blind_seat=3,
+        hands_played=0,
+        hands_at_current_level=0,
+    )
+    defaults.update(overrides)
+    return models_mod.Game(**defaults)
+
+
 def _make_round(models_mod, round_id=None, game_id="g1", **overrides):
     defaults = dict(
         round_id=round_id or str(uuid.uuid4()),
@@ -397,6 +413,134 @@ class TestTableRuntimeIntegration:
         new_level = clock.advance()
         assert new_level == 2
         assert clock.hands_at_level == 0
+
+
+# ═══════════════════════════════════════════════════════════════════════
+#  3b. Table Runtime Persistence (DB-backed)
+# ═══════════════════════════════════════════════════════════════════════
+
+class TestTableRuntimePersistence:
+    """Verify that runtime counters persist through the Game model."""
+
+    @pytest.mark.asyncio
+    async def test_game_has_runtime_fields(self, models_mod):
+        """Game model has hands_played and hands_at_current_level columns."""
+        col_names = {c.name for c in models_mod.Game.__table__.columns}
+        assert "hands_played" in col_names
+        assert "hands_at_current_level" in col_names
+
+    @pytest.mark.asyncio
+    async def test_runtime_counters_persist_across_reload(
+        self, session, models_mod,
+    ):
+        """Write runtime counters, commit, reload — values survive."""
+        gid = str(uuid.uuid4())
+        game = _make_game(models_mod, game_id=gid, hands_played=0)
+        session.add(game)
+        await session.commit()
+
+        from sqlalchemy import select
+        fetched = (await session.execute(
+            select(models_mod.Game).where(models_mod.Game.game_id == gid)
+        )).scalar_one()
+        fetched.hands_played = 7
+        fetched.hands_at_current_level = 3
+        fetched.current_blind_level = 2
+        await session.commit()
+
+        reloaded = (await session.execute(
+            select(models_mod.Game).where(models_mod.Game.game_id == gid)
+        )).scalar_one()
+        assert reloaded.hands_played == 7
+        assert reloaded.hands_at_current_level == 3
+        assert reloaded.current_blind_level == 2
+
+    @pytest.mark.asyncio
+    async def test_build_runtime_restores_counters(
+        self, session, models_mod, table_runtime_mod,
+    ):
+        """_build_runtime_from_game correctly hydrates hands_played and hands_at_level."""
+        from tests.service_loader import load_service_app_module
+        cmd_mod = load_service_app_module(
+            "game-service",
+            "application/commands/table_runtime_command_service",
+            package_name=PACKAGE,
+        )
+
+        gid = str(uuid.uuid4())
+        game = _make_game(
+            models_mod, game_id=gid,
+            hands_played=15, hands_at_current_level=5,
+            current_blind_level=3,
+        )
+        seats = [
+            table_runtime_mod.TableSeat(
+                seat_number=1, player_id="p1",
+                status=table_runtime_mod.SeatStatus.ACTIVE, chip_count=1000,
+            ),
+        ]
+        runtime = cmd_mod._build_runtime_from_game(game, seats)
+
+        assert runtime.hands_played == 15
+        assert runtime.blind_clock.current_level == 3
+        assert runtime.blind_clock.hands_at_level == 5
+
+
+# ═══════════════════════════════════════════════════════════════════════
+#  3c. Session Status Response
+# ═══════════════════════════════════════════════════════════════════════
+
+class TestSessionStatusResponse:
+    """Verify the SessionStatusResponse schema has all required fields."""
+
+    def test_session_status_fields_present(self):
+        from shared.schemas.games import SessionStatusResponse
+
+        fields = set(SessionStatusResponse.model_fields.keys())
+        required = {
+            "game_id", "status", "hands_played",
+            "current_blind_level", "hands_at_current_level",
+            "hands_until_blind_advance", "max_blind_level",
+            "small_blind", "big_blind", "ante", "dealer_seat",
+        }
+        assert required.issubset(fields), f"Missing: {required - fields}"
+
+    def test_construct_session_status(self):
+        from shared.schemas.games import SessionStatusResponse
+
+        resp = SessionStatusResponse(
+            game_id="g1",
+            status="ACTIVE",
+            hands_played=25,
+            current_blind_level=3,
+            hands_at_current_level=5,
+            hands_until_blind_advance=5,
+            max_blind_level=10,
+            small_blind=200,
+            big_blind=400,
+            ante=50,
+            dealer_seat=4,
+        )
+        assert resp.hands_played == 25
+        assert resp.hands_until_blind_advance == 5
+        assert resp.current_blind_level == 3
+
+    def test_game_response_includes_runtime_fields(self):
+        from shared.schemas.games import GameResponse
+
+        fields = set(GameResponse.model_fields.keys())
+        assert "hands_played" in fields
+        assert "hands_at_current_level" in fields
+
+        resp = GameResponse(
+            game_id="g1", room_id="r1", status="ACTIVE",
+            current_blind_level=2,
+            current_dealer_seat=1, current_small_blind_seat=2,
+            current_big_blind_seat=3,
+            hands_played=10, hands_at_current_level=4,
+        )
+        assert resp.hands_played == 10
+        assert resp.hands_at_current_level == 4
 
 
 # ═══════════════════════════════════════════════════════════════════════

@@ -15,6 +15,8 @@ class GameResponse(BaseModel):
     current_dealer_seat: int
     current_small_blind_seat: int
     current_big_blind_seat: int
+    hands_played: int = 0
+    hands_at_current_level: int = 0
     created_at: Optional[datetime] = None
 
 class StartRound(BaseModel):
@@ -31,22 +33,17 @@ class RoundPlayerResponse(BaseModel):
     is_active_in_hand: bool
 
 
-# ---------- Payout-based settlement schemas ----------
-
 class WinnerShare(BaseModel):
-    """One player's share of a single pot."""
     player_id: str = Field(..., min_length=1)
     amount: int = Field(..., ge=1)
 
 class PotPayout(BaseModel):
-    """A single pot (main or side) with one or more winners."""
     pot_index: int = Field(0, ge=0)
     pot_type: str = Field("main")
     amount: int = Field(..., ge=1)
     winners: list[WinnerShare] = Field(..., min_length=1)
 
 class ResolveHandRequest(BaseModel):
-    """Dealer submits all pot payouts to settle the hand."""
     payouts: list[PotPayout] = Field(..., min_length=1)
 
 class PayoutResponse(BaseModel):
@@ -61,7 +58,6 @@ class ResolveHandResponse(BaseModel):
     pot_amount: int
     payouts: list[PayoutResponse]
 
-# Legacy alias kept for backward-compatible imports
 class DeclareWinner(BaseModel):
     winner_player_id: str = Field(..., min_length=1)
 
@@ -70,8 +66,6 @@ class DeclareWinnerResponse(BaseModel):
     winner_player_id: str
     pot_amount: int
     status: str
-
-# --------------------------------------------------
 
 
 class RoundResponse(BaseModel):
@@ -107,7 +101,7 @@ class AdvanceBlindsResponse(BaseModel):
     ante: int
 
 class AdvanceStreetResponse(BaseModel):
-    action: str  # "NEXT_STREET" | "SETTLE_HAND" | "SHOWDOWN"
+    action: str
     round_id: str
     game_id: str
     street: str
@@ -123,8 +117,6 @@ class EndGameResponse(BaseModel):
     status: str
 
 
-# ---------- Dealer correction schemas ----------
-
 class ReverseActionRequest(BaseModel):
     original_entry_id: str = Field(..., min_length=1)
     dealer_id: Optional[str] = None
@@ -132,7 +124,7 @@ class ReverseActionRequest(BaseModel):
 
 class AdjustStackRequest(BaseModel):
     player_id: str = Field(..., min_length=1)
-    amount: int  # positive = add chips, negative = remove chips
+    amount: int
     dealer_id: Optional[str] = None
     reason: Optional[str] = None
 
@@ -175,8 +167,6 @@ class HandStateResponse(BaseModel):
     entry_count: int
     players: list[PlayerSnapshotResponse]
 
-
-# ---------- Engine module response schemas ----------
 
 class ReplayStepResponse(BaseModel):
     step_number: int
@@ -221,8 +211,6 @@ class ConsistencyCheckResponse(BaseModel):
     discrepancies: list[str]
 
 
-# ---------- Table state contract ----------
-
 class LegalAction(BaseModel):
     action: str
     min_amount: Optional[int] = None
@@ -247,3 +235,17 @@ class TableStateResponse(BaseModel):
     is_showdown_ready: bool = False
     legal_actions: list[LegalAction] = Field(default_factory=list)
     players: list[RoundPlayerResponse] = Field(default_factory=list)
+
+
+class SessionStatusResponse(BaseModel):
+    game_id: str
+    status: str
+    hands_played: int
+    current_blind_level: int
+    hands_at_current_level: int
+    hands_until_blind_advance: Optional[int] = None
+    max_blind_level: int
+    small_blind: Optional[int] = None
+    big_blind: Optional[int] = None
+    ante: int = 0
+    dealer_seat: int

@@ -29,7 +29,6 @@ class BetCommandService:
         if action_upper not in VALID_BET_ACTIONS:
             raise IllegalAction(f"Invalid bet action: {data.action}")
 
-        # ── Idempotency check (scoped to round) ─────────────────────
         if data.idempotency_key:
             existing = (
                 await self.db.execute(
@@ -40,7 +39,6 @@ class BetCommandService:
                 )
             ).scalar_one_or_none()
             if existing is not None:
-                # Reject if the caller reuses the key with different payload
                 if (
                     existing.player_id != data.player_id
                     or existing.action != action_upper
@@ -72,7 +70,6 @@ class BetCommandService:
         )
         round_players = await get_round_players(self.db, data.round_id)
 
-        # Capture pre-mutation version for DB-level compare-and-swap
         version_before = game_round.state_version or 1
 
         async with atomic(self.db):
@@ -82,7 +79,6 @@ class BetCommandService:
                 expected_version=data.expected_version,
             )
 
-            # DB-level CAS: UPDATE ... WHERE state_version = <version_before>
             await cas_update_round(self.db, game_round, version_before)
 
             bet, _ledger = record_bet_action(

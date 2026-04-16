@@ -1,10 +1,3 @@
-"""Infrastructure implementation for fetching / snapshotting room config.
-
-Implements ``RoomConfigProvider`` from the domain's anti-corruption layer:
-
-* ``HttpRoomConfigProvider`` — class implementing the full protocol
-* Module-level functions preserved for backward compatibility
-"""
 
 from __future__ import annotations
 
@@ -22,7 +15,6 @@ ROOM_SERVICE_URL = os.getenv("ROOM_SERVICE_URL", "http://room-service:8000")
 
 
 async def fetch_room_config_http(room_id: str) -> RoomConfig:
-    """Call room-service ``GET /rooms/{room_id}`` and return a typed RoomConfig."""
     async with httpx.AsyncClient(timeout=10.0) as client:
         resp = await client.get(f"{ROOM_SERVICE_URL}/rooms/{room_id}")
         if resp.status_code == 404:
@@ -57,7 +49,6 @@ async def fetch_room_config_http(room_id: str) -> RoomConfig:
 
 
 async def save_room_snapshot(db: AsyncSession, game_id: str, config: RoomConfig) -> None:
-    """Persist a RoomConfig as a local snapshot tied to a game."""
     db.add(RoomSnapshot(
         game_id=game_id,
         room_id=config.room_id,
@@ -84,7 +75,6 @@ async def save_room_snapshot(db: AsyncSession, game_id: str, config: RoomConfig)
 
 
 async def load_room_snapshot(db: AsyncSession, game_id: str) -> RoomConfig:
-    """Load a previously saved room snapshot from the local DB."""
     res = await db.execute(
         select(RoomSnapshot).where(RoomSnapshot.game_id == game_id)
     )
@@ -132,14 +122,7 @@ async def load_room_snapshot(db: AsyncSession, game_id: str) -> RoomConfig:
     )
 
 
-# ── Protocol-conforming provider class ───────────────────────────────
-
 class HttpRoomConfigProvider:
-    """Implements ``RoomConfigProvider`` using HTTP + DB snapshots.
-
-    Delegates to the module-level functions above.  Can be injected
-    into services that declare a dependency on ``RoomConfigProvider``.
-    """
 
     def __init__(self, db: AsyncSession) -> None:
         self._db = db

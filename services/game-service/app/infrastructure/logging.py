@@ -1,8 +1,3 @@
-"""Structured logging configuration for game-service.
-
-Provides a pre-configured logger with JSON-style structured fields and
-a middleware that attaches correlation IDs to every request.
-"""
 
 from __future__ import annotations
 
@@ -10,7 +5,6 @@ import logging
 import uuid
 from contextvars import ContextVar
 
-# ── Correlation ID propagation ───────────────────────────────────
 correlation_id_ctx: ContextVar[str | None] = ContextVar("correlation_id", default=None)
 
 
@@ -18,10 +12,7 @@ def get_correlation_id() -> str | None:
     return correlation_id_ctx.get()
 
 
-# ── Structured logger ───────────────────────────────────────────
-
 class StructuredLogger:
-    """Thin wrapper around stdlib logging that adds structured context."""
 
     def __init__(self, name: str) -> None:
         self._logger = logging.getLogger(name)
@@ -49,10 +40,7 @@ def get_logger(name: str) -> StructuredLogger:
     return StructuredLogger(name)
 
 
-# ── JSON-ish formatter ───────────────────────────────────────────
-
 class StructuredFormatter(logging.Formatter):
-    """Formatter that appends structured fields to the log line."""
 
     def format(self, record: logging.LogRecord) -> str:
         base = super().format(record)
@@ -64,7 +52,6 @@ class StructuredFormatter(logging.Formatter):
 
 
 def configure_logging(level: int = logging.INFO) -> None:
-    """Configure root logging with structured formatter."""
     handler = logging.StreamHandler()
     handler.setFormatter(StructuredFormatter(
         fmt="%(asctime)s %(levelname)s %(name)s %(message)s",

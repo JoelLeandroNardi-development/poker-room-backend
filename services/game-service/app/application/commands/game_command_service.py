@@ -130,7 +130,6 @@ class GameCommandService:
 
         active_players = room_config.active_players
 
-        # Determine first-to-act: player after big blind
         active_seats = [p.seat_number for p in active_players]
         bb_seat = game.current_big_blind_seat
         if bb_seat in active_seats:
@@ -141,7 +140,6 @@ class GameCommandService:
 
         first_to_act_seat = active_seats[first_to_act_idx]
 
-        # ── Post forced bets (blinds + antes) — pure computation ────
         seat_players = [
             SeatPlayer(
                 player_id=p.player_id,
@@ -160,7 +158,6 @@ class GameCommandService:
             ante_amount=ante,
         )
 
-        # ── Atomic write: round + players + outbox ──────────────────
         async with atomic(self.db):
             game_round = Round(
                 round_id=round_id,
@@ -207,7 +204,6 @@ class GameCommandService:
             game_round.pot_amount = posting.pot_total
             game_round.current_highest_bet = posting.current_highest_bet
 
-            # ── Ledger entries for forced bets ──────────────────────
             for pp in posting.players:
                 if pp.committed_this_hand <= 0:
                     continue
@@ -252,7 +248,6 @@ class GameCommandService:
         return round_to_response(game_round, round_players)
 
     async def resolve_hand(self, round_id: str, data: ResolveHandRequest) -> ResolveHandResponse:
-        # ── Phase 1: reads + validation (no DB writes) ──────────────
         game_round = await fetch_or_raise(
             self.db, Round,
             filter_column=Round.round_id,
@@ -282,7 +277,6 @@ class GameCommandService:
         round_players = await get_round_players(self.db, round_id)
         player_map = {rp.player_id: rp for rp in round_players}
 
-        # Validate payouts against computed side-pot structure
         payout_dicts = [
             {
                 "pot_index": pot.pot_index,
@@ -321,10 +315,6 @@ class GameCommandService:
             for pot in data.payouts
         ]
 
-        # ── Phase 2: atomic write (SAVEPOINT) ───────────────────────
-        # Everything below either fully commits or fully rolls back:
-        # payout records + stack credits + round status + position
-        # rotation + outbox event.
         payout_rows: list[RoundPayout] = []
 
         async with atomic(self.db):
@@ -402,7 +392,6 @@ class GameCommandService:
         )
 
     async def advance_street(self, round_id: str) -> AdvanceStreetResponse:
-        """Advance the round to the next street after current action is complete."""
         game_round = await fetch_or_raise(
             self.db, Round,
             filter_column=Round.round_id,
@@ -489,7 +478,6 @@ class GameCommandService:
         )
 
     async def declare_winner(self, round_id: str, data: DeclareWinner) -> DeclareWinnerResponse:
-        """Legacy single-winner endpoint — delegates to resolve_hand."""
         game_round = await fetch_or_raise(
             self.db, Round,
             filter_column=Round.round_id,

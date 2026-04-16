@@ -29,4 +29,5 @@ from shared.schemas.games import (
     ConsistencyCheckResponse,
     LegalAction,
     TableStateResponse,
+    SessionStatusResponse,
 )

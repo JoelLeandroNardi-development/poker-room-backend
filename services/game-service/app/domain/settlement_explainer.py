@@ -1,21 +1,3 @@
-"""Settlement explanation engine.
-
-Produces a structured, human-readable explanation of how the pot was
-split among players.  Given the same inputs that
-``payout_validation.validate_payouts_against_side_pots`` consumes, this
-module builds a narrative showing:
-
-- How each pot was formed (who contributed, how much).
-- Who was eligible to win each pot and why.
-- Which players were *ineligible* (folded, etc.) and why.
-- The actual winner(s) and amounts awarded.
-
-This is a **pure** module — no IO, no ORM types in public signatures.
-
-Usage::
-
-    explanation = explain_settlement(contributions, submitted_payouts)
-"""
 
 from __future__ import annotations
 
@@ -24,11 +6,8 @@ from dataclasses import dataclass, field
 from .side_pots import PlayerContribution, Pot, calculate_side_pots
 
 
-# ── Output types ─────────────────────────────────────────────────────
-
 @dataclass(frozen=True, slots=True)
 class WinnerDetail:
-    """One winner's share from a single pot."""
 
     player_id: str
     amount: int
@@ -36,22 +15,20 @@ class WinnerDetail:
 
 @dataclass(frozen=True, slots=True)
 class PotExplanation:
-    """Full explanation of a single (main / side) pot."""
 
     pot_index: int
-    pot_label: str  # "Main Pot", "Side Pot 1", etc.
+    pot_label: str
     amount: int
     contributor_player_ids: tuple[str, ...]
     eligible_player_ids: tuple[str, ...]
-    ineligible_reasons: dict[str, str]  # player_id → reason
+    ineligible_reasons: dict[str, str]
     winners: list[WinnerDetail]
     awarded_total: int
-    unclaimed: int  # amount - awarded_total
+    unclaimed: int
 
 
 @dataclass(slots=True)
 class SettlementExplanation:
-    """Complete settlement narrative for a hand."""
 
     total_pot: int = 0
     total_awarded: int = 0
@@ -60,36 +37,17 @@ class SettlementExplanation:
     narrative: list[str] = field(default_factory=list)
 
 
-# ── Public API ───────────────────────────────────────────────────────
-
 def explain_settlement(
     contributions: list[PlayerContribution],
     submitted_payouts: list[dict] | None = None,
 ) -> SettlementExplanation:
-    """Build a human-readable explanation of the settlement.
-
-    Parameters
-    ----------
-    contributions:
-        Per-player end-of-hand contributions (same input as
-        ``calculate_side_pots``).
-    submitted_payouts:
-        Optional list of pot payouts (``pot_index``, ``winners``).
-        If ``None``, the explanation covers pot structure only.
-
-    Returns
-    -------
-    SettlementExplanation
-    """
     computed_pots = calculate_side_pots(contributions)
 
-    # Index submitted payouts by pot_index for quick lookup
     payout_map: dict[int, list[dict]] = {}
     if submitted_payouts:
         for sp in submitted_payouts:
             payout_map[sp["pot_index"]] = sp.get("winners", [])
 
-    # Build a lookup of player fold / showdown status
     player_status: dict[str, PlayerContribution] = {
         c.player_id: c for c in contributions
     }
@@ -102,7 +60,6 @@ def explain_settlement(
         pot_label = "Main Pot" if pot.pot_index == 0 else f"Side Pot {pot.pot_index}"
         total_pot += pot.amount
 
-        # Determine ineligible reasons
         ineligible: dict[str, str] = {}
         eligible_set = set(pot.eligible_winner_player_ids)
         for cid in pot.contributor_player_ids:
@@ -115,7 +72,6 @@ def explain_settlement(
                 else:
                     ineligible[cid] = "ineligible"
 
-        # Map winners
         winners: list[WinnerDetail] = []
         pot_winners = payout_map.get(pot.pot_index, [])
         for w in pot_winners:
@@ -143,18 +99,14 @@ def explain_settlement(
     result.total_awarded = total_awarded
     result.total_unclaimed = total_pot - total_awarded
 
-    # Build narrative sentences
     result.narrative = _build_narrative(result, player_status)
     return result
 
-
-# ── Narrative builder ────────────────────────────────────────────────
 
 def _build_narrative(
     explanation: SettlementExplanation,
     player_status: dict[str, PlayerContribution],
 ) -> list[str]:
-    """Generate human-readable sentences describing the settlement."""
     lines: list[str] = []
 
     lines.append(f"Total pot: {explanation.total_pot} chips.")

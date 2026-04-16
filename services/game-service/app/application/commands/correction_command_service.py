@@ -1,9 +1,3 @@
-"""Service methods for dealer corrections on a Texas Hold'em hand.
-
-Each correction appends a new *immutable* ledger entry that
-references the original entry it amends.  The authoritative hand
-state is always derived by replaying the full ledger.
-"""
 
 from __future__ import annotations
 
@@ -34,10 +28,8 @@ class CorrectionCommandService:
     def __init__(self, db: AsyncSession):
         self.db = db
 
-    # ── Queries ──────────────────────────────────────────────────────
 
     async def get_hand_state(self, round_id: str) -> HandState:
-        """Rebuild the current hand state from the ledger."""
         rows = await get_ledger_entries(self.db, round_id)
         ledger = [
             LedgerRow(
@@ -53,15 +45,12 @@ class CorrectionCommandService:
         return rebuild_hand_state(ledger)
 
     async def get_ledger(self, round_id: str) -> list[HandLedgerEntry]:
-        """Return the full immutable ledger for a round."""
         return await get_ledger_entries(self.db, round_id)
 
-    # ── Corrections ──────────────────────────────────────────────────
 
     async def reverse_action(
         self, round_id: str, original_entry_id: str, *, dealer_id: str | None = None, reason: str | None = None,
     ) -> HandLedgerEntry:
-        """Reverse a previous bet / blind / ante entry."""
         game_round = await fetch_or_raise(
             self.db, Round, filter_column=Round.round_id,
             filter_value=round_id, detail=ErrorMessage.ROUND_NOT_FOUND,
@@ -71,7 +60,6 @@ class CorrectionCommandService:
         if original is None or original.round_id != round_id:
             raise LedgerEntryNotFound("Ledger entry not found")
 
-        # Guard: cannot reverse a correction entry or an already-reversed entry
         if original.entry_type in CORRECTION_ENTRY_TYPES:
             raise CannotReverseCorrection("Cannot reverse a correction entry")
 
@@ -95,8 +83,6 @@ class CorrectionCommandService:
                 dealer_id=dealer_id,
             )
 
-            # Project reversal onto mutable state so Round/RoundPlayer
-            # stays consistent with the ledger.
             reversed_amount = original.amount or 0
             if original.player_id and reversed_amount > 0:
                 round_players = await get_round_players(self.db, round_id)
@@ -116,7 +102,6 @@ class CorrectionCommandService:
         self, round_id: str, player_id: str, amount: int,
         *, dealer_id: str | None = None, reason: str | None = None,
     ) -> HandLedgerEntry:
-        """Apply an ad-hoc chip adjustment to a player's stack."""
         game_round = await fetch_or_raise(
             self.db, Round, filter_column=Round.round_id,
             filter_value=round_id, detail=ErrorMessage.ROUND_NOT_FOUND,
@@ -132,7 +117,6 @@ class CorrectionCommandService:
                 detail={"reason": reason} if reason else None,
                 dealer_id=dealer_id,
             )
-            # Apply the adjustment to the live RoundPlayer row
             round_players = await get_round_players(self.db, round_id)
             rp = next((p for p in round_players if p.player_id == player_id), None)
             if rp is not None:
@@ -145,7 +129,6 @@ class CorrectionCommandService:
     async def reopen_hand(
         self, round_id: str, *, dealer_id: str | None = None, reason: str | None = None,
     ) -> HandLedgerEntry:
-        """Re-open a completed round so the dealer can make corrections."""
         game_round = await fetch_or_raise(
             self.db, Round, filter_column=Round.round_id,
             filter_value=round_id, detail=ErrorMessage.ROUND_NOT_FOUND,
@@ -176,7 +159,6 @@ class CorrectionCommandService:
         new_player_id: str, new_amount: int,
         *, dealer_id: str | None = None, reason: str | None = None,
     ) -> HandLedgerEntry:
-        """Correct a mis-assigned payout: debit old winner, credit new."""
         game_round = await fetch_or_raise(
             self.db, Round, filter_column=Round.round_id,
             filter_value=round_id, detail=ErrorMessage.ROUND_NOT_FOUND,
@@ -212,7 +194,6 @@ class CorrectionCommandService:
         await self.db.commit()
         return entry
 
-    # ── Helpers ──────────────────────────────────────────────────────
 
     def _emit_correction_event(self, game_round: Round, entry: HandLedgerEntry) -> None:
         event = build_event(

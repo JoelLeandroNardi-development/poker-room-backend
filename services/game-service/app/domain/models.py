@@ -22,10 +22,16 @@ class Game(Base):
     current_dealer_seat = Column(Integer, nullable=False, default=1)
     current_small_blind_seat = Column(Integer, nullable=False, default=2)
     current_big_blind_seat = Column(Integer, nullable=False, default=3)
+
+    hands_played = Column(Integer, nullable=False, default=0)
+    hands_at_current_level = Column(Integer, nullable=False, default=0)
+
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     __table_args__ = (
         CheckConstraint("current_blind_level >= 1", name="ck_games_blind_level_positive"),
+        CheckConstraint("hands_played >= 0", name="ck_games_hands_played_non_negative"),
+        CheckConstraint("hands_at_current_level >= 0", name="ck_games_hands_at_level_non_negative"),
         CheckConstraint(
             f"status IN ({', '.join(repr(s.value) for s in GameStatus)})",
             name="ck_games_status_enum",
@@ -33,12 +39,6 @@ class Game(Base):
     )
 
 class Round(Base):
-    """Authoritative projection — mutable snapshot of the current hand.
-
-    Updated in-place by ``apply_action()``.  Together with
-    ``RoundPlayer``, this is the single source of truth for
-    'where is the hand right now?'
-    """
     __tablename__ = TableName.ROUNDS
 
     id = Column(Integer, primary_key=True)
@@ -54,7 +54,6 @@ class Round(Base):
     status = Column(String, nullable=False, default=RoundStatus.ACTIVE)
     pot_amount = Column(Integer, nullable=False, default=0)
 
-    # --- Hand-state fields ---
     street = Column(String, nullable=False, default=Street.PRE_FLOP)
     acting_player_id = Column(String, nullable=True)
     current_highest_bet = Column(Integer, nullable=False, default=0)
@@ -62,7 +61,6 @@ class Round(Base):
     is_action_closed = Column(Boolean, nullable=False, default=False)
     last_aggressor_seat = Column(Integer, nullable=True)
 
-    # --- Versioning / concurrency ---
     engine_version = Column(String, nullable=False, default="0.15.0")
     state_version = Column(Integer, nullable=False, default=1)
 
@@ -124,11 +122,6 @@ class RoundPayout(Base):
     )
 
 class Bet(Base):
-    """Action read model — denormalized record of each betting action.
-
-    Redundant with ``HandLedgerEntry`` but kept for backward
-    compatibility and fast per-round action history queries.
-    """
     __tablename__ = TableName.BETS
 
     id = Column(Integer, primary_key=True)
@@ -151,12 +144,6 @@ class Bet(Base):
     )
 
 class HandLedgerEntry(Base):
-    """Immutable, append-only audit log for every state-changing event
-    within a hand — including dealer corrections.
-
-    Rows are never updated or deleted.  Corrections are recorded as
-    *new* entries that reference the ``original_entry_id`` they amend.
-    """
     __tablename__ = TableName.HAND_LEDGER_ENTRIES
 
     id = Column(Integer, primary_key=True)
@@ -165,11 +152,8 @@ class HandLedgerEntry(Base):
     entry_type = Column(String, nullable=False, index=True)
     player_id = Column(String, nullable=True)
     amount = Column(Integer, nullable=True)
-    # Free-form detail — e.g. {"reason": "wrong player", "old_amount": 100}
     detail = Column(JSON, nullable=True)
-    # Links a correction entry back to the original it amends
     original_entry_id = Column(String, nullable=True, index=True)
-    # Dealer / operator who authored this entry
     dealer_id = Column(String, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
@@ -182,10 +166,6 @@ class HandLedgerEntry(Base):
         ),
     )
 
-
-# ── Room Snapshot ────────────────────────────────────────────────────
-# Captured once at game start so that mid-hand operations never need
-# a live HTTP call to room-service.
 
 class RoomSnapshot(Base):
     __tablename__ = TableName.ROOM_SNAPSHOTS

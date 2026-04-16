@@ -25,15 +25,12 @@ class StreetAdvanceAction(StrEnum):
     SHOWDOWN = "SHOWDOWN"
 
 class LedgerEntryType(StrEnum):
-    """Types of entries in the hand ledger (immutable audit log)."""
-    # Original forward actions
     BLIND_POSTED = "BLIND_POSTED"
     ANTE_POSTED = "ANTE_POSTED"
     BET_PLACED = "BET_PLACED"
     STREET_DEALT = "STREET_DEALT"
     PAYOUT_AWARDED = "PAYOUT_AWARDED"
     ROUND_COMPLETED = "ROUND_COMPLETED"
-    # Dealer corrections
     ACTION_REVERSED = "ACTION_REVERSED"
     STACK_ADJUSTED = "STACK_ADJUSTED"
     HAND_REOPENED = "HAND_REOPENED"
@@ -119,7 +116,6 @@ class ErrorMessage(StrEnum):
     ENTRY_ALREADY_REVERSED = "This ledger entry has already been reversed"
     ROUND_NOT_COMPLETED = "Round must be completed before applying this correction"
     ROUND_ALREADY_ACTIVE = "Round is already active"
-    # Betting
     BET_NOT_FOUND = "Bet not found"
     INVALID_ACTION = "Invalid bet action"
     PLAYER_ALREADY_FOLDED = "Player has already folded this round"

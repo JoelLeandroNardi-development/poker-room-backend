@@ -16,7 +16,7 @@ from ..domain.schemas import (
     ReverseActionRequest, AdjustStackRequest, ReopenHandRequest,
     CorrectPayoutRequest, LedgerEntryResponse, HandStateResponse,
     ReplayResponse, TimelineResponse, SettlementExplanationResponse,
-    ConsistencyCheckResponse, TableStateResponse,
+    ConsistencyCheckResponse, TableStateResponse, SessionStatusResponse,
 )
 from shared.schemas.bets import PlaceBet, BetResponse, PotResponse, PlayerBetSummary
 from ..infrastructure.db import SessionLocal
@@ -74,8 +74,6 @@ async def end_game(game_id: str, db: AsyncSession = Depends(get_db)):
     return await GameCommandService(db).end_game(game_id)
 
 
-# ── Dealer correction endpoints ──────────────────────────────────────
-
 @router.get("/rounds/{round_id}/ledger", response_model=list[LedgerEntryResponse])
 async def get_ledger(round_id: str, db: AsyncSession = Depends(get_db)):
     svc = CorrectionCommandService(db)
@@ -126,8 +124,6 @@ async def correct_payout(round_id: str, data: CorrectPayoutRequest, db: AsyncSes
     return ledger_entry_to_response(entry)
 
 
-# ── Betting endpoints (consolidated from betting-service) ────────
-
 @router.post("/bets", response_model=BetResponse)
 async def place_bet(data: PlaceBet, db: AsyncSession = Depends(get_db)):
     return await BetCommandService(db).place_bet(data)
@@ -144,8 +140,6 @@ async def get_pot(round_id: str, db: AsyncSession = Depends(get_db)):
 async def get_player_summaries(round_id: str, db: AsyncSession = Depends(get_db)):
     return await BetQueryService(db).get_player_summaries(round_id)
 
-
-# ── Engine module endpoints ──────────────────────────────────────────
 
 @router.get("/rounds/{round_id}/replay", response_model=ReplayResponse)
 async def get_replay(round_id: str, db: AsyncSession = Depends(get_db)):
@@ -168,8 +162,6 @@ async def get_table_state(round_id: str, db: AsyncSession = Depends(get_db)):
     return await GameQueryService(db).get_table_state(round_id)
 
 
-# ── Table runtime endpoints ──────────────────────────────────────
-
 @router.post("/games/{game_id}/pause")
 async def pause_table(game_id: str, db: AsyncSession = Depends(get_db)):
     return await TableRuntimeCommandService(db).pause_table(game_id)
@@ -181,3 +173,7 @@ async def resume_table(game_id: str, db: AsyncSession = Depends(get_db)):
 @router.post("/games/{game_id}/record-hand-completed")
 async def record_hand_completed(game_id: str, db: AsyncSession = Depends(get_db)):
     return await TableRuntimeCommandService(db).record_hand_completed(game_id)
+
+@router.get("/games/{game_id}/session-status", response_model=SessionStatusResponse)
+async def get_session_status(game_id: str, db: AsyncSession = Depends(get_db)):
+    return await TableRuntimeCommandService(db).get_session_status(game_id)

@@ -21,7 +21,6 @@ CORRELATION_HEADER = "X-Correlation-ID"
 
 
 class GatewayCorrelationMiddleware(BaseHTTPMiddleware):
-    """Generates or forwards X-Correlation-ID on every request."""
 
     async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
         cid = request.headers.get(CORRELATION_HEADER) or str(uuid.uuid4())

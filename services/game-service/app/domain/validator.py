@@ -54,7 +54,6 @@ class HandContext:
 
 @dataclass(frozen=True, slots=True)
 class ValidatedAction:
-    """The result of validation — the canonical action and chip amount to record."""
     action: str
     amount: int
 
@@ -66,20 +65,13 @@ def validate_bet(
     amount: int,
     rules: RulesProfile = NO_LIMIT_HOLDEM,
 ) -> ValidatedAction:
-    """Validate a betting action against the current hand state.
 
-    Returns a ``ValidatedAction`` with the canonical action name and chip
-    amount, or raises a domain exception if the action is illegal.
-    """
-
-    # --- Round-level guards ---
     if ctx.status != RoundStatus.ACTIVE:
         raise RoundNotActive("Round is not in ACTIVE status")
 
     if ctx.is_action_closed:
         raise ActionClosed("Betting action is closed for this street")
 
-    # --- Player-level guards ---
     player = ctx.get_player(player_id)
     if player is None:
         raise PlayerNotInHand("Player is not in this hand")
@@ -93,27 +85,22 @@ def validate_bet(
     if player.is_all_in:
         raise PlayerAlreadyAllIn("Player is already all-in")
 
-    # --- Turn order ---
     if ctx.acting_player_id is not None and ctx.acting_player_id != player_id:
         raise NotYourTurn("It is not your turn to act")
 
-    # --- Derived values ---
     call_amount = max(0, ctx.current_highest_bet - player.committed_this_street)
     stack = player.stack_remaining
 
     action_upper = action.upper()
 
-    # ======== FOLD ========
     if action_upper == BetAction.FOLD:
         return ValidatedAction(action=BetAction.FOLD, amount=0)
 
-    # ======== CHECK ========
     if action_upper == BetAction.CHECK:
         if call_amount > 0:
             raise CheckNotAllowed("Cannot check when there is a bet to call")
         return ValidatedAction(action=BetAction.CHECK, amount=0)
 
-    # ======== CALL ========
     if action_upper == BetAction.CALL:
         if call_amount == 0:
             raise CallNotAllowed("Nothing to call — use check instead")
@@ -122,7 +109,6 @@ def validate_bet(
             return ValidatedAction(action=BetAction.ALL_IN, amount=effective)
         return ValidatedAction(action=BetAction.CALL, amount=effective)
 
-    # ======== BET (opening bet — no previous bet on street) ========
     if action_upper == BetAction.BET:
         if ctx.current_highest_bet > 0:
             raise BetNotAllowed("Cannot bet — there is already a bet on this street; use raise")
@@ -136,7 +122,6 @@ def validate_bet(
             return ValidatedAction(action=BetAction.ALL_IN, amount=amount)
         return ValidatedAction(action=BetAction.BET, amount=amount)
 
-    # ======== RAISE ========
     if action_upper == BetAction.RAISE:
         if ctx.current_highest_bet == 0:
             raise RaiseNotAllowed("Cannot raise — no previous bet to raise; use bet")
@@ -160,7 +145,6 @@ def validate_bet(
             return ValidatedAction(action=BetAction.ALL_IN, amount=additional_chips)
         return ValidatedAction(action=BetAction.RAISE, amount=additional_chips)
 
-    # ======== ALL_IN (explicit) ========
     if action_upper == BetAction.ALL_IN:
         if stack <= 0:
             raise PlayerAlreadyAllIn("Player is already all-in")

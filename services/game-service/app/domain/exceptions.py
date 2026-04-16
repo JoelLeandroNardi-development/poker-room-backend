@@ -1,146 +1,124 @@
-"""Domain exceptions for the poker hand engine.
-
-These exceptions carry structured error information without coupling
-to any HTTP framework.  The API layer maps them to HTTP responses.
-"""
 from __future__ import annotations
 
 
 class DomainError(Exception):
-    """Base for all domain-layer errors."""
 
     def __init__(self, message: str) -> None:
         self.message = message
         super().__init__(message)
 
 
-# ── Hand / round guards ─────────────────────────────────────────────
-
 class RoundNotActive(DomainError):
-    """The round is not in ACTIVE status."""
+    pass
 
 
 class ActionClosed(DomainError):
-    """Betting action is closed for this street."""
+    pass
 
 
 class RoundNotCompleted(DomainError):
-    """Round must be completed before this operation."""
+    pass
 
 
 class RoundAlreadyActive(DomainError):
-    """Round is already active."""
+    pass
 
 
 class AlreadyAtShowdown(DomainError):
-    """Cannot advance street: round is already at showdown."""
+    pass
 
-
-# ── Player guards ────────────────────────────────────────────────────
 
 class PlayerNotInHand(DomainError):
-    """Player is not participating in this hand."""
+    pass
 
 
 class PlayerAlreadyFolded(DomainError):
-    """Player has already folded this round."""
+    pass
 
 
 class PlayerAlreadyAllIn(DomainError):
-    """Player is already all-in."""
+    pass
 
 
 class NotYourTurn(DomainError):
-    """It is not this player's turn to act."""
+    pass
 
-
-# ── Bet validation ───────────────────────────────────────────────────
 
 class IllegalAction(DomainError):
-    """Generic illegal betting action."""
+    pass
 
 
 class CheckNotAllowed(DomainError):
-    """Cannot check when there is a bet to call."""
+    pass
 
 
 class CallNotAllowed(DomainError):
-    """Nothing to call — use check instead."""
+    pass
 
 
 class BetNotAllowed(DomainError):
-    """Cannot open a bet when there is already a bet on this street."""
+    pass
 
 
 class RaiseNotAllowed(DomainError):
-    """Cannot raise when there is no previous bet to raise."""
+    pass
 
 
 class RaiseBelowMinimum(DomainError):
-    """Raise amount is below the minimum raise."""
+    pass
 
 
 class AmountExceedsStack(DomainError):
-    """Bet/raise amount exceeds remaining stack."""
+    pass
 
 
 class InvalidAmount(DomainError):
-    """Amount must be greater than zero."""
+    pass
 
-
-# ── Game-level guards ────────────────────────────────────────────────
 
 class GameNotActive(DomainError):
-    """Game is not in ACTIVE status."""
+    pass
 
 
 class GameAlreadyExists(DomainError):
-    """An active game already exists for this room."""
+    pass
 
-
-# ── Resource not found ───────────────────────────────────────────────
 
 class NotFound(DomainError):
-    """A requested resource was not found."""
+    pass
 
-
-# ── Ledger / correction guards ───────────────────────────────────────
 
 class LedgerEntryNotFound(DomainError):
-    """Ledger entry not found."""
+    pass
 
 
 class EntryAlreadyReversed(DomainError):
-    """This ledger entry has already been reversed."""
+    pass
 
 
 class CannotReverseCorrection(DomainError):
-    """Cannot reverse a correction entry."""
+    pass
 
-
-# ── Settlement guards ────────────────────────────────────────────────
 
 class PayoutExceedsPot(DomainError):
-    """Total payouts exceed pot amount."""
+    pass
 
 
 class PayoutEmpty(DomainError):
-    """At least one pot payout is required."""
+    pass
 
 
 class PayoutMismatch(DomainError):
-    """Pot winners total does not match pot amount."""
+    pass
 
-
-# ── Concurrency / idempotency ────────────────────────────────────────
 
 class StaleStateError(DomainError):
-    """Optimistic concurrency conflict: state_version has advanced."""
+    pass
 
 
 class DuplicateActionError(DomainError):
-    """Idempotency guard: this action has already been applied."""
+    pass
 
 
 class IdempotencyConflict(DomainError):
-    """Idempotency key reused with a different payload."""
+    pass

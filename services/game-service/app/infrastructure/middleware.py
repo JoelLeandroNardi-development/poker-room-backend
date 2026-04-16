@@ -1,4 +1,3 @@
-"""FastAPI middleware for correlation ID propagation and request logging."""
 
 from __future__ import annotations
 
@@ -17,7 +16,6 @@ CORRELATION_HEADER = "X-Correlation-ID"
 
 
 class CorrelationIdMiddleware(BaseHTTPMiddleware):
-    """Extracts or generates a correlation ID and logs request metrics."""
 
     async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
         cid = request.headers.get(CORRELATION_HEADER) or str(uuid.uuid4())

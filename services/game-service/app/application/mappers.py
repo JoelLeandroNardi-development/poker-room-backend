@@ -26,6 +26,8 @@ def game_to_response(game: Game) -> GameResponse:
         current_dealer_seat=game.current_dealer_seat,
         current_small_blind_seat=game.current_small_blind_seat,
         current_big_blind_seat=game.current_big_blind_seat,
+        hands_played=game.hands_played,
+        hands_at_current_level=game.hands_at_current_level,
         created_at=game.created_at,
     )
 

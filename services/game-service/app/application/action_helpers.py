@@ -1,9 +1,3 @@
-"""Reusable helpers for recording actions in command services.
-
-Centralizes UUID generation, Bet row creation, ledger entry
-writing, and outbox event emission so that command services
-stay thin and DRY.
-"""
 
 from __future__ import annotations
 
@@ -26,13 +20,6 @@ def record_bet_action(
     amount: int,
     idempotency_key: str | None = None,
 ) -> tuple[Bet, HandLedgerEntry]:
-    """Create a Bet row and a BET_PLACED ledger entry, add to session.
-
-    Also emits a ``BET_PLACED`` outbox event.
-
-    Returns the (Bet, HandLedgerEntry) pair for callers that need
-    to reference them (e.g. for the HTTP response).
-    """
     bet_id = str(uuid.uuid4())
     entry_id = str(uuid.uuid4())
 
@@ -82,7 +69,6 @@ def append_ledger_entry(
     original_entry_id: str | None = None,
     dealer_id: str | None = None,
 ) -> HandLedgerEntry:
-    """Create and add a single HandLedgerEntry to the session."""
     entry = HandLedgerEntry(
         entry_id=str(uuid.uuid4()),
         round_id=round_id,

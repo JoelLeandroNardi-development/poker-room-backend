@@ -1,18 +1,3 @@
-"""Unified apply-action pipeline for Texas Hold'em.
-
-Architecture:
-
-1. ``transition_hand_state()`` — **pure domain function**.  Accepts
-   immutable dataclass snapshots, validates, and returns a structured
-   ``HandTransition`` describing all mutations without performing them.
-
-2. ``apply_action()`` — **thin ORM adapter**.  Reads ORM rows into the
-   pure input, calls ``transition_hand_state()``, and writes the diff
-   back onto the mutable ORM objects.
-
-Callers interact with ``apply_action()`` at the application boundary.
-The pure core is independently testable without any DB or ORM involvement.
-"""
 
 from __future__ import annotations
 
@@ -26,13 +11,10 @@ from .turn_engine import ActionSeat, next_to_act
 from .validator import HandContext, PlayerState, ValidatedAction, validate_bet
 
 
-# ── Pure output types ────────────────────────────────────────────────
-
 @dataclass(frozen=True, slots=True)
 class PlayerMutation:
-    """Describes changes to apply to one player after an action."""
     player_id: str
-    stack_delta: int          # negative = chips removed from stack
+    stack_delta: int
     street_commit_delta: int
     hand_commit_delta: int
     should_fold: bool
@@ -41,22 +23,16 @@ class PlayerMutation:
 
 @dataclass(frozen=True, slots=True)
 class RoundMutation:
-    """Describes changes to apply to the round after an action."""
     pot_delta: int
-    new_highest_bet: int | None     # None = unchanged
-    new_min_raise: int | None       # None = unchanged
+    new_highest_bet: int | None
+    new_min_raise: int | None
     new_acting_player_id: str | None
-    new_last_aggressor_seat: int | None  # None = unchanged
+    new_last_aggressor_seat: int | None
     is_action_closed: bool
 
 
 @dataclass(frozen=True, slots=True)
 class HandTransition:
-    """Complete, pure result of a single player action.
-
-    Contains the validated action outcome and all planned mutations,
-    but performs no side effects.
-    """
     action: str
     amount: int
     is_round_closed: bool
@@ -65,18 +41,13 @@ class HandTransition:
     round_mutation: RoundMutation
 
 
-# ── Legacy result alias (public API) ────────────────────────────────
-
 @dataclass(frozen=True, slots=True)
 class ApplyActionResult:
-    """Outcome of a single player action (kept for backward compat)."""
     action: str
     amount: int
     is_round_closed: bool
     next_player_id: str | None
 
-
-# ── Pure state-transition core ───────────────────────────────────────
 
 def transition_hand_state(
     ctx: HandContext,
@@ -86,41 +57,13 @@ def transition_hand_state(
     last_aggressor_seat: int | None,
     rules: RulesProfile = NO_LIMIT_HOLDEM,
 ) -> HandTransition:
-    """Validate an action and compute the full mutation plan.
-
-    This function is **pure** — it reads only from its arguments and
-    returns a deterministic ``HandTransition`` without mutating anything.
-
-    Parameters
-    ----------
-    ctx : HandContext
-        Immutable snapshot of the current hand state.
-    player_id : str
-        The player attempting to act.
-    action : str
-        Raw action string (FOLD, CHECK, CALL, BET, RAISE, ALL_IN).
-    amount : int
-        Chip amount accompanying the action.
-    last_aggressor_seat : int | None
-        The seat of the most recent bet/raise on this street, or
-        ``None`` if there is no aggressor yet.
-
-    Returns
-    -------
-    HandTransition
-        Contains the validated action, chip movement, and next-actor
-        determination.
-    """
-    # ── 1. Validate ──────────────────────────────────────────────────
     result: ValidatedAction = validate_bet(ctx, player_id, action, amount, rules=rules)
     effective_action = result.action
     effective_amount = result.amount
 
-    # ── 2. Locate the acting player's snapshot ───────────────────────
     player = ctx.get_player(player_id)
-    assert player is not None  # validate_bet already checked
+    assert player is not None
 
-    # ── 3. Compute player mutation ───────────────────────────────────
     should_fold = effective_action == BetAction.FOLD
     should_all_in = effective_action == BetAction.ALL_IN
     if effective_action in (BetAction.CALL, BetAction.BET, BetAction.RAISE, BetAction.ALL_IN):
@@ -139,12 +82,10 @@ def transition_hand_state(
         should_all_in=should_all_in,
     )
 
-    # ── 4. Compute round mutation ────────────────────────────────────
     new_highest_bet: int | None = None
     new_min_raise: int | None = None
     new_aggressor_seat: int | None = None
 
-    # Apply player-level delta to compute post-action committed total
     post_committed = player.committed_this_street + commit_delta
 
     if effective_action in (BetAction.BET, BetAction.RAISE, BetAction.ALL_IN):
@@ -155,8 +96,6 @@ def transition_hand_state(
                 new_min_raise = raise_increment
         new_aggressor_seat = player.seat_number
 
-    # ── 5. Determine next actor ──────────────────────────────────────
-    # Build post-mutation player snapshots for the turn engine
     action_seats: list[ActionSeat] = []
     for p in ctx.players:
         folded = p.has_folded
@@ -209,8 +148,6 @@ def transition_hand_state(
     )
 
 
-# ── ORM adapter ──────────────────────────────────────────────────────
-
 def _build_hand_context(game_round: Round, round_players: list[RoundPlayer]) -> HandContext:
     players = [
         PlayerState(
@@ -242,11 +179,9 @@ def _apply_transition(
     round_players: list[RoundPlayer],
     transition: HandTransition,
 ) -> None:
-    """Write a ``HandTransition`` onto mutable ORM objects."""
     pm = transition.player_mutation
     rm = transition.round_mutation
 
-    # Player mutations
     for rp in round_players:
         if rp.player_id == pm.player_id:
             rp.stack_remaining += pm.stack_delta
@@ -259,7 +194,6 @@ def _apply_transition(
                 rp.is_all_in = True
             break
 
-    # Round mutations
     game_round.pot_amount += rm.pot_delta
     if rm.new_highest_bet is not None:
         game_round.current_highest_bet = rm.new_highest_bet
@@ -275,7 +209,6 @@ def _apply_transition(
         game_round.acting_player_id = rm.new_acting_player_id
         game_round.is_action_closed = False
 
-    # Bump optimistic-concurrency version on every mutation
     game_round.state_version = (game_round.state_version or 1) + 1
 
 
@@ -288,21 +221,6 @@ def apply_action(
     rules: RulesProfile = NO_LIMIT_HOLDEM,
     expected_version: int | None = None,
 ) -> ApplyActionResult:
-    """Validate *and* mutate round + player state for a single action.
-
-    This is the application-layer entry point.  It delegates to the
-    pure ``transition_hand_state()`` for all decision logic and then
-    writes the resulting diff onto the ORM objects.
-
-    The caller is responsible for wrapping this in a DB transaction and
-    persisting the mutated ORM objects.
-
-    Parameters
-    ----------
-    expected_version:
-        If provided, the caller's last-known ``state_version``.
-        A mismatch raises ``StaleStateError`` for optimistic concurrency.
-    """
     if expected_version is not None:
         current = game_round.state_version or 1
         if current != expected_version:

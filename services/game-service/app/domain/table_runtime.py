@@ -1,17 +1,3 @@
-"""Table runtime — session lifecycle layer above the single-hand engine.
-
-This module owns concerns that span *multiple hands* within one game
-session:
-
-- **Hand numbering** — sequential round numbering for the session.
-- **Seat management** — sit-out / sit-in between hands.
-- **Session pause / resume** — freeze state without losing context.
-- **Blind clock** — track when to advance blind levels based on
-  elapsed time or hands played.
-
-The table runtime is a **pure state machine** — no IO, no ORM.
-Application services translate between ORM objects and this layer.
-"""
 
 from __future__ import annotations
 
@@ -35,7 +21,6 @@ class TableStatus(str, Enum):
 
 @dataclass
 class TableSeat:
-    """One seat at the table."""
 
     seat_number: int
     player_id: str | None = None
@@ -46,7 +31,6 @@ class TableSeat:
 
 @dataclass
 class BlindClock:
-    """Tracks blind level progression."""
 
     current_level: int = 1
     level_started_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
@@ -58,7 +42,6 @@ class BlindClock:
         seconds_per_level: int | None = None,
         now: datetime | None = None,
     ) -> bool:
-        """Check if the blind level should advance based on policy."""
         if hands_per_level is not None and self.hands_at_level >= hands_per_level:
             return True
         if seconds_per_level is not None:
@@ -69,20 +52,17 @@ class BlindClock:
         return False
 
     def advance(self) -> int:
-        """Advance to the next blind level. Returns the new level number."""
         self.current_level += 1
         self.level_started_at = datetime.now(timezone.utc)
         self.hands_at_level = 0
         return self.current_level
 
     def record_hand(self) -> None:
-        """Record that a hand was completed at the current level."""
         self.hands_at_level += 1
 
 
 @dataclass
 class TableRuntime:
-    """Pure state machine for the table session."""
 
     game_id: str
     status: str = TableStatus.WAITING
@@ -133,7 +113,6 @@ class TableRuntime:
         seat.hands_sat_out = 0
 
     def record_hand_completed(self) -> None:
-        """Call after each hand finishes."""
         self.hands_played += 1
         self.blind_clock.record_hand()
         for s in self.seats:

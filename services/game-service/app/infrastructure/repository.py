@@ -6,10 +6,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..domain.constants import GameStatus, RoundStatus
 from ..domain.exceptions import NotFound, StaleStateError
 from ..domain.models import Bet, Game, Round, RoundPlayer, RoundPayout, HandLedgerEntry
+from .logging import get_logger
+
+logger = get_logger("game-service.repository")
 
 
 async def fetch_or_raise(db: AsyncSession, model, *, filter_column, filter_value, detail: str = "Not found"):
-    """Like shared fetch_or_404 but raises domain NotFound instead of HTTPException."""
     res = await db.execute(select(model).where(filter_column == filter_value))
     obj = res.scalar_one_or_none()
     if obj is None:
@@ -84,8 +86,6 @@ async def get_ledger_entry_by_id(db: AsyncSession, entry_id: str) -> HandLedgerE
     return res.scalar_one_or_none()
 
 
-# ── Betting queries ──────────────────────────────────────────────
-
 async def get_bets_for_round(db: AsyncSession, round_id: str) -> list[Bet]:
     res = await db.execute(
         select(Bet)
@@ -102,20 +102,11 @@ async def get_pot_total(db: AsyncSession, round_id: str) -> int:
     return res.scalar_one()
 
 
-# ── Optimistic-concurrency CAS ──────────────────────────────────
-
 async def cas_update_round(
     db: AsyncSession,
     game_round: Round,
     expected_version: int,
 ) -> None:
-    """Compare-and-swap: flush ORM state only if DB version matches.
-
-    Executes ``UPDATE rounds SET ... WHERE round_id=? AND state_version=?``.
-    Raises ``StaleStateError`` when the affected row count is 0 (another
-    writer already advanced the version).
-    """
-    # Prevent ORM auto-flush from writing state_version before our CAS
     saved_autoflush = db.autoflush
     db.autoflush = False
     try:
@@ -139,6 +130,12 @@ async def cas_update_round(
     finally:
         db.autoflush = saved_autoflush
     if result.rowcount == 0:
+        logger.warning(
+            "CAS conflict — stale version",
+            round_id=game_round.round_id,
+            expected_version=expected_version,
+            attempted_version=game_round.state_version,
+        )
         raise StaleStateError(
             f"Concurrent update on round {game_round.round_id}: "
             f"expected state_version={expected_version}"

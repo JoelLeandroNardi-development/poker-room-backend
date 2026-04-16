@@ -1,17 +1,3 @@
-"""Pure-function hand state rebuilder from the ledger event log.
-
-Replays ``HandLedgerEntry`` rows in chronological order to produce
-the "current truth" for a hand.  Corrections override earlier entries
-without mutating them — the ledger stays immutable.
-
-Usage::
-
-    entries = await get_ledger_entries(db, round_id)
-    state   = rebuild_hand_state(entries)
-
-The returned ``HandState`` is a snapshot you can use for display,
-validation, or further corrections.
-"""
 
 from __future__ import annotations
 
@@ -19,11 +5,8 @@ from dataclasses import dataclass, field
 from typing import Any
 
 
-# ── Input (mirrors the DB columns needed for replay) ─────────────────
-
 @dataclass(frozen=True)
 class LedgerRow:
-    """Lightweight projection of a HandLedgerEntry row."""
     entry_id: str
     entry_type: str
     player_id: str | None
@@ -32,20 +15,16 @@ class LedgerRow:
     original_entry_id: str | None
 
 
-# ── Output ───────────────────────────────────────────────────────────
-
 @dataclass
 class PlayerSnapshot:
-    """Accumulated per-player state after replaying the ledger."""
     player_id: str
-    stack_adjustment: int = 0     # net chips added/removed by corrections
-    total_committed: int = 0      # total chips put into the pot
-    total_won: int = 0            # total chips received from payouts
-    is_action_reversed: bool = False  # last action was reversed
+    stack_adjustment: int = 0
+    total_committed: int = 0
+    total_won: int = 0
+    is_action_reversed: bool = False
 
 @dataclass
 class HandState:
-    """Aggregate snapshot of the hand rebuilt from the ledger."""
     players: dict[str, PlayerSnapshot] = field(default_factory=dict)
     pot_total: int = 0
     is_completed: bool = False
@@ -55,11 +34,8 @@ class HandState:
     entry_count: int = 0
 
     def net_pot(self) -> int:
-        """Pot total adjusted for reversed actions."""
         return self.pot_total
 
-
-# ── Entry-type constants (avoids importing the full constants module) ─
 
 _BLIND_POSTED = "BLIND_POSTED"
 _ANTE_POSTED = "ANTE_POSTED"
@@ -72,8 +48,6 @@ _HAND_REOPENED = "HAND_REOPENED"
 _PAYOUT_CORRECTED = "PAYOUT_CORRECTED"
 
 
-# ── Replay engine ────────────────────────────────────────────────────
-
 def _ensure_player(state: HandState, player_id: str) -> PlayerSnapshot:
     if player_id not in state.players:
         state.players[player_id] = PlayerSnapshot(player_id=player_id)
@@ -81,14 +55,8 @@ def _ensure_player(state: HandState, player_id: str) -> PlayerSnapshot:
 
 
 def apply_entry(state: HandState, e: LedgerRow) -> None:
-    """Apply a single ledger entry to *state* **in place**.
-
-    This is the incremental building-block used by both
-    ``rebuild_hand_state`` and the replay engine.
-    """
     state.entry_count += 1
 
-    # ── Forward actions ──────────────────────────────────────
     if e.entry_type in (_BLIND_POSTED, _ANTE_POSTED, _BET_PLACED):
         amt = e.amount or 0
         if e.player_id:
@@ -106,7 +74,6 @@ def apply_entry(state: HandState, e: LedgerRow) -> None:
     elif e.entry_type == _ROUND_COMPLETED:
         state.is_completed = True
 
-    # ── Corrections ──────────────────────────────────────────
     elif e.entry_type == _ACTION_REVERSED:
         orig_id = e.original_entry_id
         if orig_id:
@@ -135,12 +102,10 @@ def apply_entry(state: HandState, e: LedgerRow) -> None:
         old_amount = detail.get("old_amount", 0)
         new_amount = e.amount or 0
 
-        # Reverse old payout
         if old_player:
             ps_old = _ensure_player(state, old_player)
             ps_old.total_won -= old_amount
 
-        # Apply new payout
         if new_player:
             ps_new = _ensure_player(state, new_player)
             ps_new.total_won += new_amount
@@ -155,13 +120,6 @@ def apply_entry(state: HandState, e: LedgerRow) -> None:
 
 
 def rebuild_hand_state(entries: list[LedgerRow]) -> HandState:
-    """Replay a chronological list of ledger entries → ``HandState``.
-
-    Parameters
-    ----------
-    entries:
-        **Must** be sorted by ``created_at`` ascending (insertion order).
-    """
     state = HandState()
     for e in entries:
         apply_entry(state, e)
