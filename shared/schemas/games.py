@@ -231,11 +231,19 @@ class LegalAction(BaseModel):
 class TableStateResponse(BaseModel):
     round_id: str
     game_id: str
+    round_number: int
     street: str
     pot_amount: int
     acting_player_id: Optional[str] = None
     current_highest_bet: int
+    minimum_raise_amount: int
     is_action_closed: bool
     state_version: int
+    dealer_seat: int
+    small_blind_seat: int
+    big_blind_seat: int
+    last_aggressor_seat: Optional[int] = None
+    call_amount: Optional[int] = None
+    is_showdown_ready: bool = False
     legal_actions: list[LegalAction] = Field(default_factory=list)
     players: list[RoundPlayerResponse] = Field(default_factory=list)

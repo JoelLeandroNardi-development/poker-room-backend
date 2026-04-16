@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-from sqlalchemy import select, func
+from sqlalchemy import select, func, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..domain.constants import GameStatus, RoundStatus
-from ..domain.exceptions import NotFound
+from ..domain.exceptions import NotFound, StaleStateError
 from ..domain.models import Bet, Game, Round, RoundPlayer, RoundPayout, HandLedgerEntry
 
 
@@ -100,3 +100,46 @@ async def get_pot_total(db: AsyncSession, round_id: str) -> int:
         .where(Bet.round_id == round_id)
     )
     return res.scalar_one()
+
+
+# ── Optimistic-concurrency CAS ──────────────────────────────────
+
+async def cas_update_round(
+    db: AsyncSession,
+    game_round: Round,
+    expected_version: int,
+) -> None:
+    """Compare-and-swap: flush ORM state only if DB version matches.
+
+    Executes ``UPDATE rounds SET ... WHERE round_id=? AND state_version=?``.
+    Raises ``StaleStateError`` when the affected row count is 0 (another
+    writer already advanced the version).
+    """
+    # Prevent ORM auto-flush from writing state_version before our CAS
+    saved_autoflush = db.autoflush
+    db.autoflush = False
+    try:
+        result = await db.execute(
+            update(Round)
+            .where(Round.round_id == game_round.round_id)
+            .where(Round.state_version == expected_version)
+            .values(
+                pot_amount=game_round.pot_amount,
+                current_highest_bet=game_round.current_highest_bet,
+                minimum_raise_amount=game_round.minimum_raise_amount,
+                acting_player_id=game_round.acting_player_id,
+                last_aggressor_seat=game_round.last_aggressor_seat,
+                is_action_closed=game_round.is_action_closed,
+                state_version=game_round.state_version,
+                street=game_round.street,
+                status=game_round.status,
+                completed_at=game_round.completed_at,
+            )
+        )
+    finally:
+        db.autoflush = saved_autoflush
+    if result.rowcount == 0:
+        raise StaleStateError(
+            f"Concurrent update on round {game_round.round_id}: "
+            f"expected state_version={expected_version}"
+        )

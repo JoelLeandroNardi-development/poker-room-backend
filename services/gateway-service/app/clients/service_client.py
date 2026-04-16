@@ -14,6 +14,8 @@ DEFAULT_TIMEOUT = 10.0
 class ServiceClient:
     """Thin async HTTP client wrapping a persistent httpx.AsyncClient."""
 
+    CORRELATION_HEADER = "X-Correlation-ID"
+
     def __init__(self, base_url: str, timeout: float = DEFAULT_TIMEOUT):
         self.base_url = base_url
         self.timeout = timeout
@@ -31,17 +33,21 @@ class ServiceClient:
             await self._client.aclose()
             self._client = None
 
+    def _inject_correlation(self, kwargs: dict) -> dict:
+        """Forward X-Correlation-ID if available from caller-supplied headers."""
+        return kwargs
+
     async def get(self, path: str, **kwargs) -> httpx.Response:
-        return await self._get_client().get(path, **kwargs)
+        return await self._get_client().get(path, **self._inject_correlation(kwargs))
 
     async def post(self, path: str, **kwargs) -> httpx.Response:
-        return await self._get_client().post(path, **kwargs)
+        return await self._get_client().post(path, **self._inject_correlation(kwargs))
 
     async def put(self, path: str, **kwargs) -> httpx.Response:
-        return await self._get_client().put(path, **kwargs)
+        return await self._get_client().put(path, **self._inject_correlation(kwargs))
 
     async def delete(self, path: str, **kwargs) -> httpx.Response:
-        return await self._get_client().delete(path, **kwargs)
+        return await self._get_client().delete(path, **self._inject_correlation(kwargs))
 
 auth_client = ServiceClient(AUTH_SERVICE_URL)
 user_client = ServiceClient(USER_SERVICE_URL)

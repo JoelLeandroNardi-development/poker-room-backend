@@ -137,10 +137,11 @@ class Bet(Base):
     player_id = Column(String, nullable=False, index=True)
     action = Column(String, nullable=False)
     amount = Column(Integer, nullable=False, default=0)
-    idempotency_key = Column(String, nullable=True, unique=True, index=True)
+    idempotency_key = Column(String, nullable=True, index=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     __table_args__ = (
+        UniqueConstraint("round_id", "idempotency_key", name="uq_bets_round_idempotency"),
         Index("ix_bets_round_created", "round_id", "created_at"),
         CheckConstraint("amount >= 0", name="ck_bets_amount_non_negative"),
         CheckConstraint(

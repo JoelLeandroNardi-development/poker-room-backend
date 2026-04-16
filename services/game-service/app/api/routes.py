@@ -4,6 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..application.commands.game_command_service import GameCommandService
 from ..application.commands.correction_command_service import CorrectionCommandService
 from ..application.commands.bet_command_service import BetCommandService
+from ..application.commands.table_runtime_command_service import TableRuntimeCommandService
 from ..application.queries.game_query_service import GameQueryService
 from ..application.queries.bet_query_service import BetQueryService
 from ..application.mappers import ledger_entry_to_response, hand_state_to_response
@@ -165,3 +166,18 @@ async def check_consistency(round_id: str, db: AsyncSession = Depends(get_db)):
 @router.get("/rounds/{round_id}/table-state", response_model=TableStateResponse)
 async def get_table_state(round_id: str, db: AsyncSession = Depends(get_db)):
     return await GameQueryService(db).get_table_state(round_id)
+
+
+# ── Table runtime endpoints ──────────────────────────────────────
+
+@router.post("/games/{game_id}/pause")
+async def pause_table(game_id: str, db: AsyncSession = Depends(get_db)):
+    return await TableRuntimeCommandService(db).pause_table(game_id)
+
+@router.post("/games/{game_id}/resume")
+async def resume_table(game_id: str, db: AsyncSession = Depends(get_db)):
+    return await TableRuntimeCommandService(db).resume_table(game_id)
+
+@router.post("/games/{game_id}/record-hand-completed")
+async def record_hand_completed(game_id: str, db: AsyncSession = Depends(get_db)):
+    return await TableRuntimeCommandService(db).record_hand_completed(game_id)

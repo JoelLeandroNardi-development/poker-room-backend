@@ -140,3 +140,7 @@ class StaleStateError(DomainError):
 
 class DuplicateActionError(DomainError):
     """Idempotency guard: this action has already been applied."""
+
+
+class IdempotencyConflict(DomainError):
+    """Idempotency key reused with a different payload."""

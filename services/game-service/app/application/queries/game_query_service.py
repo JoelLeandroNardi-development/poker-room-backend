@@ -271,6 +271,7 @@ class GameQueryService:
         round_players = await get_round_players(self.db, round_id)
 
         legal_actions: list[LegalAction] = []
+        computed_call_amount: int | None = None
         if game_round.acting_player_id and not game_round.is_action_closed:
             acting_rp = next(
                 (rp for rp in round_players if rp.player_id == game_round.acting_player_id),
@@ -278,6 +279,7 @@ class GameQueryService:
             )
             if acting_rp:
                 call_amount = max(0, game_round.current_highest_bet - acting_rp.committed_this_street)
+                computed_call_amount = call_amount
                 stack = acting_rp.stack_remaining
 
                 legal_actions.append(LegalAction(action=BetAction.FOLD))
@@ -309,15 +311,29 @@ class GameQueryService:
                         action=BetAction.ALL_IN, min_amount=stack, max_amount=stack,
                     ))
 
+        from ...domain.constants import Street, RoundStatus
+        is_showdown_ready = (
+            game_round.street == Street.SHOWDOWN
+            or game_round.status == RoundStatus.COMPLETED
+        )
+
         return TableStateResponse(
             round_id=round_id,
             game_id=game_round.game_id,
+            round_number=game_round.round_number,
             street=game_round.street,
             pot_amount=game_round.pot_amount,
             acting_player_id=game_round.acting_player_id,
             current_highest_bet=game_round.current_highest_bet,
+            minimum_raise_amount=game_round.minimum_raise_amount,
             is_action_closed=game_round.is_action_closed,
             state_version=game_round.state_version,
+            dealer_seat=game_round.dealer_seat,
+            small_blind_seat=game_round.small_blind_seat,
+            big_blind_seat=game_round.big_blind_seat,
+            last_aggressor_seat=game_round.last_aggressor_seat,
+            call_amount=computed_call_amount,
+            is_showdown_ready=is_showdown_ready,
             legal_actions=legal_actions,
             players=[round_player_to_response(rp) for rp in round_players],
         )

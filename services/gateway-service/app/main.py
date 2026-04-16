@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import uuid
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
+from starlette.responses import Response
 
 from .clients.service_client import auth_client, user_client, room_client, game_client
 from .config import SERVICE_NAME
@@ -13,6 +16,20 @@ from .routes.player_routes import router as player_router
 from .routes.game_routes import router as game_router
 from .routes.round_routes import router as round_router
 from .routes.bet_routes import router as bet_router
+
+CORRELATION_HEADER = "X-Correlation-ID"
+
+
+class GatewayCorrelationMiddleware(BaseHTTPMiddleware):
+    """Generates or forwards X-Correlation-ID on every request."""
+
+    async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
+        cid = request.headers.get(CORRELATION_HEADER) or str(uuid.uuid4())
+        request.state.correlation_id = cid
+        response = await call_next(request)
+        response.headers[CORRELATION_HEADER] = cid
+        return response
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -26,6 +43,7 @@ app = FastAPI(
     description="Unified API gateway for the Poker Room platform.",
     lifespan=lifespan,
 )
+app.add_middleware(GatewayCorrelationMiddleware)
 
 app.include_router(auth_router)
 app.include_router(user_router)
