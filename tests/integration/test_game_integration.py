@@ -544,19 +544,19 @@ class TestReplayOnSettledHand:
     @pytest.fixture
     def ledger_mod(self):
         return load_service_app_module(
-            "game-service", "domain/hand_ledger", package_name=PACKAGE,
+            "game-service", "domain/ledger/hand_ledger", package_name=PACKAGE,
         )
 
     @pytest.fixture
     def replay_mod(self):
         return load_service_app_module(
-            "game-service", "domain/hand_replay", package_name=PACKAGE,
+            "game-service", "domain/ledger/hand_replay", package_name=PACKAGE,
         )
 
     @pytest.fixture
     def history_mod(self):
         return load_service_app_module(
-            "game-service", "domain/hand_history", package_name=PACKAGE,
+            "game-service", "domain/ledger/hand_history", package_name=PACKAGE,
         )
 
     def test_replay_settled_hand_is_consistent(self, ledger_mod, replay_mod):
