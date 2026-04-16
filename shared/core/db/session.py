@@ -24,7 +24,6 @@ def make_get_db(SessionLocal):
 
     return get_db
 
-
 @asynccontextmanager
 async def atomic(session: AsyncSession):
     async with session.begin_nested():

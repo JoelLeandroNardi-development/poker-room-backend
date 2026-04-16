@@ -10,7 +10,6 @@ down_revision = "002"
 branch_labels = None
 depends_on = None
 
-
 def upgrade() -> None:
     op.drop_index("ix_bets_idempotency_key", table_name="bets")
     op.create_unique_constraint(
@@ -19,7 +18,6 @@ def upgrade() -> None:
     op.create_index(
         "ix_bets_idempotency_key", "bets", ["idempotency_key"],
     )
-
 
 def downgrade() -> None:
     op.drop_index("ix_bets_idempotency_key", table_name="bets")

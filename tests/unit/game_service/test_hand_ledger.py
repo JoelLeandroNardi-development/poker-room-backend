@@ -23,23 +23,17 @@ os.environ.setdefault("GAME_DB", "sqlite+aiosqlite:///:memory:")
 os.environ.setdefault("RABBIT_URL", "amqp://guest:guest@localhost:5672/")
 os.environ.setdefault("EXCHANGE_NAME", "test_exchange")
 
-
 @pytest.fixture(scope="module")
 def ledger_module():
-    return load_service_app_module("game-service", "domain/hand_ledger")
-
+    return load_service_app_module("game-service", "domain/ledger/hand_ledger")
 
 @pytest.fixture(scope="module")
 def rebuild(ledger_module):
     return ledger_module.rebuild_hand_state
 
-
 @pytest.fixture(scope="module")
 def LedgerRow(ledger_module):
     return ledger_module.LedgerRow
-
-
-# ── Helpers ──────────────────────────────────────────────────────────
 
 def _row(cls, eid, etype, pid=None, amt=None, detail=None, orig=None):
     return cls(
@@ -50,9 +44,6 @@ def _row(cls, eid, etype, pid=None, amt=None, detail=None, orig=None):
         detail=detail,
         original_entry_id=orig,
     )
-
-
-# ── Forward events ───────────────────────────────────────────────────
 
 class TestForwardEvents:
     def test_empty_ledger(self, rebuild, LedgerRow):
@@ -100,7 +91,6 @@ class TestForwardEvents:
         ]
         state = rebuild(entries)
         assert state.players["B"].total_won == 150
-        # pot_total reflects what went in, not what came out
         assert state.pot_total == 150
 
     def test_round_completed(self, rebuild, LedgerRow):
@@ -112,16 +102,12 @@ class TestForwardEvents:
         assert state.is_completed is True
 
     def test_street_dealt_is_tracked(self, rebuild, LedgerRow):
-        """STREET_DEALT doesn't change pot, but is counted."""
         entries = [
             _row(LedgerRow, "e1", "STREET_DEALT"),
         ]
         state = rebuild(entries)
         assert state.entry_count == 1
         assert state.pot_total == 0
-
-
-# ── ACTION_REVERSED ──────────────────────────────────────────────────
 
 class TestActionReversed:
     def test_reverse_deducts_from_pot(self, rebuild, LedgerRow):
@@ -143,11 +129,10 @@ class TestActionReversed:
         assert state.players["A"].is_action_reversed is True
 
     def test_reverse_then_new_bet(self, rebuild, LedgerRow):
-        """Reverse a wrong bet, place the correct one."""
         entries = [
-            _row(LedgerRow, "e1", "BET_PLACED", "A", 999),     # wrong
+            _row(LedgerRow, "e1", "BET_PLACED", "A", 999),
             _row(LedgerRow, "e2", "ACTION_REVERSED", "A", 999, orig="e1"),
-            _row(LedgerRow, "e3", "BET_PLACED", "A", 200),     # correct
+            _row(LedgerRow, "e3", "BET_PLACED", "A", 200),
         ]
         state = rebuild(entries)
         assert state.pot_total == 200
@@ -161,11 +146,8 @@ class TestActionReversed:
             _row(LedgerRow, "e3", "ACTION_REVERSED", "BB", 100, orig="e2"),
         ]
         state = rebuild(entries)
-        assert state.pot_total == 50  # only SB
+        assert state.pot_total == 50
         assert state.players["BB"].total_committed == 0
-
-
-# ── STACK_ADJUSTED ───────────────────────────────────────────────────
 
 class TestStackAdjusted:
     def test_positive_adjustment(self, rebuild, LedgerRow):
@@ -196,10 +178,7 @@ class TestStackAdjusted:
             _row(LedgerRow, "e2", "STACK_ADJUSTED", "A", 50),
         ]
         state = rebuild(entries)
-        assert state.pot_total == 100  # unchanged
-
-
-# ── HAND_REOPENED ────────────────────────────────────────────────────
+        assert state.pot_total == 100
 
 class TestHandReopened:
     def test_reopen_sets_flags(self, rebuild, LedgerRow):
@@ -219,10 +198,7 @@ class TestHandReopened:
         ]
         state = rebuild(entries)
         assert state.is_completed is True
-        assert state.is_reopened is True  # still True — it was reopened once
-
-
-# ── PAYOUT_CORRECTED ────────────────────────────────────────────────
+        assert state.is_reopened is True
 
 class TestPayoutCorrected:
     def test_correct_payout_swaps_winner(self, rebuild, LedgerRow):
@@ -232,8 +208,8 @@ class TestPayoutCorrected:
                  detail={"old_player_id": "A", "old_amount": 500}),
         ]
         state = rebuild(entries)
-        assert state.players["A"].total_won == 0   # reversed
-        assert state.players["B"].total_won == 500  # new winner
+        assert state.players["A"].total_won == 0
+        assert state.players["B"].total_won == 500
 
     def test_correct_partial_amount(self, rebuild, LedgerRow):
         entries = [
@@ -242,7 +218,6 @@ class TestPayoutCorrected:
                  detail={"old_player_id": "A", "old_amount": 500}),
         ]
         state = rebuild(entries)
-        # Original: +500, correction: -500 + 300 = net 300
         assert state.players["A"].total_won == 300
 
     def test_correction_tracked(self, rebuild, LedgerRow):
@@ -256,39 +231,32 @@ class TestPayoutCorrected:
         assert state.payout_corrections[0]["old_player_id"] == "A"
         assert state.payout_corrections[0]["new_player_id"] == "B"
 
-
-# ── Full workflow scenarios ──────────────────────────────────────────
-
 class TestFullWorkflow:
     def test_deal_misclick_reverse_correct(self, rebuild, LedgerRow):
-        """Dealer deals blinds, player bets wrong amount, dealer reverses,
-        player bets correct amount, hand completes normally."""
         entries = [
             _row(LedgerRow, "e1", "BLIND_POSTED", "SB", 50),
             _row(LedgerRow, "e2", "BLIND_POSTED", "BB", 100),
-            _row(LedgerRow, "e3", "BET_PLACED", "UTG", 999),       # wrong
+            _row(LedgerRow, "e3", "BET_PLACED", "UTG", 999),
             _row(LedgerRow, "e4", "ACTION_REVERSED", "UTG", 999, orig="e3"),
-            _row(LedgerRow, "e5", "BET_PLACED", "UTG", 200),       # correct
-            _row(LedgerRow, "e6", "BET_PLACED", "SB", 150),        # call
-            _row(LedgerRow, "e7", "BET_PLACED", "BB", 100),        # call
+            _row(LedgerRow, "e5", "BET_PLACED", "UTG", 200),
+            _row(LedgerRow, "e6", "BET_PLACED", "SB", 150),
+            _row(LedgerRow, "e7", "BET_PLACED", "BB", 100),
             _row(LedgerRow, "e8", "PAYOUT_AWARDED", "UTG", 600),
             _row(LedgerRow, "e9", "ROUND_COMPLETED"),
         ]
         state = rebuild(entries)
-        assert state.pot_total == 600  # 50+100+200+150+100 = 600
+        assert state.pot_total == 600
         assert state.players["UTG"].total_committed == 200
         assert state.players["UTG"].total_won == 600
         assert state.is_completed is True
         assert "e3" in state.reversed_entry_ids
 
     def test_wrong_winner_reopen_and_correct(self, rebuild, LedgerRow):
-        """Hand completed with wrong winner — reopen, correct payout, reclose."""
         entries = [
             _row(LedgerRow, "e1", "BLIND_POSTED", "A", 50),
             _row(LedgerRow, "e2", "BLIND_POSTED", "B", 100),
-            _row(LedgerRow, "e3", "PAYOUT_AWARDED", "A", 150),     # wrong winner
+            _row(LedgerRow, "e3", "PAYOUT_AWARDED", "A", 150),
             _row(LedgerRow, "e4", "ROUND_COMPLETED"),
-            # Correction flow:
             _row(LedgerRow, "e5", "HAND_REOPENED"),
             _row(LedgerRow, "e6", "PAYOUT_CORRECTED", "B", 150,
                  detail={"old_player_id": "A", "old_amount": 150}),
@@ -302,7 +270,6 @@ class TestFullWorkflow:
         assert state.entry_count == 7
 
     def test_stack_correction_during_hand(self, rebuild, LedgerRow):
-        """Dealer notices wrong chip count mid-hand, adjusts."""
         entries = [
             _row(LedgerRow, "e1", "BLIND_POSTED", "A", 50),
             _row(LedgerRow, "e2", "BLIND_POSTED", "B", 100),
@@ -312,16 +279,12 @@ class TestFullWorkflow:
         ]
         state = rebuild(entries)
         assert state.players["A"].stack_adjustment == -25
-        assert state.players["A"].total_committed == 250  # 50 + 200
-        assert state.pot_total == 350  # 50+100+200
-
-
-# ── Six-player scenario ─────────────────────────────────────────────
+        assert state.players["A"].total_committed == 250
+        assert state.pot_total == 350
 
 class TestSixPlayerLedger:
     def test_six_player_with_corrections(self, rebuild, LedgerRow):
         entries = [
-            # Blinds + antes
             _row(LedgerRow, "e01", "ANTE_POSTED", "P1", 10),
             _row(LedgerRow, "e02", "ANTE_POSTED", "P2", 10),
             _row(LedgerRow, "e03", "ANTE_POSTED", "P3", 10),
@@ -340,10 +303,9 @@ class TestSixPlayerLedger:
             _row(LedgerRow, "e14", "ROUND_COMPLETED"),
         ]
         state = rebuild(entries)
-        # pot = 6*10 + 50 + 100 + 200 + 200 = 610
         assert state.pot_total == 610
         assert state.players["P4"].total_won == 660
-        assert state.players["P5"].total_committed == 210  # ante(10) + bet(200) after reversal
+        assert state.players["P5"].total_committed == 210
         assert "e10" in state.reversed_entry_ids
         assert state.is_completed is True
         assert state.entry_count == 14

@@ -4,8 +4,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
-from .blind_posting import SeatPlayer, post_blinds_and_antes
-
+from .engine.blind_posting import SeatPlayer, post_blinds_and_antes
 
 @dataclass(frozen=True, slots=True)
 class PlayerSetup:
@@ -14,14 +13,12 @@ class PlayerSetup:
     seat: int
     stack: int
 
-
 @dataclass(frozen=True, slots=True)
 class BlindSetup:
 
     small: int
     big: int
     ante: int = 0
-
 
 @dataclass(frozen=True, slots=True)
 class ScriptedAction:
@@ -30,13 +27,11 @@ class ScriptedAction:
     action: str
     amount: int
 
-
 @dataclass(frozen=True, slots=True)
 class Expectation:
 
     check_type: str
     args: dict[str, Any] = field(default_factory=dict)
-
 
 @dataclass(frozen=True, slots=True)
 class ExpectationResult:
@@ -45,10 +40,8 @@ class ExpectationResult:
     expectation: Expectation
     message: str = ""
 
-
 @dataclass
 class HandScenario:
-
     name: str
     players: list[PlayerSetup]
     blinds: BlindSetup
@@ -80,7 +73,6 @@ class HandScenario:
             Expectation("error", {"error_type": error_type})
         )
 
-
 @dataclass
 class ScenarioResult:
 
@@ -93,7 +85,6 @@ class ScenarioResult:
     @property
     def failures(self) -> list[ExpectationResult]:
         return [r for r in self.expectation_results if not r.passed]
-
 
 def run_scenario(
     scenario: HandScenario,
@@ -162,12 +153,10 @@ def run_scenario(
 
     return result
 
-
 def _seat_left_of(seat: int, players: list[PlayerSetup]) -> int:
     seats = sorted(p.seat for p in players)
     idx = seats.index(seat) if seat in seats else 0
     return seats[(idx + 1) % len(seats)]
-
 
 def _post_blinds(
     game_round,
@@ -211,7 +200,6 @@ def _post_blinds(
         if rp.seat_number == first_seat:
             game_round.acting_player_id = rp.player_id
             break
-
 
 def _evaluate(
     exp: Expectation,

@@ -18,8 +18,6 @@ import uuid
 
 import pytest
 
-# ── Postgres connection ──────────────────────────────────────────────
-
 PG_URL = os.environ.get(
     "GAME_DB_PG",
     "postgresql+asyncpg://poker:poker@localhost:5432/game_db",
@@ -27,9 +25,7 @@ PG_URL = os.environ.get(
 
 _pg_available: bool | None = None
 
-
 def _check_pg() -> bool:
-    """Return True if the Postgres instance is reachable (cached)."""
     global _pg_available
     if _pg_available is not None:
         return _pg_available
@@ -47,7 +43,6 @@ def _check_pg() -> bool:
         _pg_available = False
     return _pg_available
 
-
 async def _try_connect():
     from sqlalchemy.ext.asyncio import create_async_engine
 
@@ -58,14 +53,11 @@ async def _try_connect():
         )
     await engine.dispose()
 
-
 requires_postgres = pytest.mark.skipif(
     not _check_pg(),
     reason="PostgreSQL not available (set GAME_DB_PG or run docker-compose up postgres)",
 )
 
-# Set env vars needed by service_loader, but do NOT override GAME_DB
-# so other tests using SQLite are not affected.
 os.environ.setdefault("GAME_DB", "sqlite+aiosqlite:///:memory:")
 os.environ.setdefault("RABBIT_URL", "amqp://guest:guest@localhost:5672/")
 os.environ.setdefault("EXCHANGE_NAME", "test_exchange")
@@ -74,15 +66,11 @@ from tests.service_loader import load_service_app_module
 
 PACKAGE = "pg_integration_app"
 
-
-# ── Module fixtures ──────────────────────────────────────────────────
-
 @pytest.fixture(scope="module")
 def models_mod():
     return load_service_app_module(
         "game-service", "domain/models", package_name=PACKAGE, reload_modules=True,
     )
-
 
 @pytest.fixture(scope="module")
 def repo_mod():
@@ -90,13 +78,11 @@ def repo_mod():
         "game-service", "infrastructure/repository", package_name=PACKAGE,
     )
 
-
 @pytest.fixture(scope="module")
 def exceptions_mod():
     return load_service_app_module(
         "game-service", "domain/exceptions", package_name=PACKAGE,
     )
-
 
 @pytest.fixture(scope="module")
 def db_module(models_mod):
@@ -104,12 +90,8 @@ def db_module(models_mod):
         "game-service", "infrastructure/db", package_name=PACKAGE,
     )
 
-
-# ── DB session fixtures (Postgres) ──────────────────────────────────
-
 @pytest.fixture(scope="module")
 async def pg_engine(db_module):
-    """Create tables on the test Postgres database, yield engine, then drop."""
     from sqlalchemy.ext.asyncio import create_async_engine
 
     engine = create_async_engine(PG_URL, echo=False)
@@ -121,7 +103,6 @@ async def pg_engine(db_module):
         await conn.run_sync(db_module.Base.metadata.drop_all)
     await engine.dispose()
 
-
 @pytest.fixture
 async def session(pg_engine):
     from sqlalchemy.ext.asyncio import async_sessionmaker
@@ -129,11 +110,7 @@ async def session(pg_engine):
     Session = async_sessionmaker(pg_engine, expire_on_commit=False)
     async with Session() as s:
         yield s
-        # Rollback any uncommitted state and clean up rows
         await s.rollback()
-
-
-# ── Helpers ──────────────────────────────────────────────────────────
 
 def _make_game(models_mod, game_id=None, **overrides):
     defaults = dict(
@@ -149,7 +126,6 @@ def _make_game(models_mod, game_id=None, **overrides):
     )
     defaults.update(overrides)
     return models_mod.Game(**defaults)
-
 
 def _make_round(models_mod, round_id=None, game_id="g1", **overrides):
     defaults = dict(
@@ -174,21 +150,13 @@ def _make_round(models_mod, round_id=None, game_id="g1", **overrides):
     defaults.update(overrides)
     return models_mod.Round(**defaults)
 
-
-# ═══════════════════════════════════════════════════════════════════════
-#  Postgres CAS tests
-# ═══════════════════════════════════════════════════════════════════════
-
 @requires_postgres
 @pytest.mark.postgres
 class TestPostgresCAS:
-    """Verify CAS behaviour under Postgres transaction isolation."""
-
     @pytest.mark.asyncio
     async def test_cas_success_under_postgres(
         self, session, models_mod, repo_mod,
     ):
-        """Basic CAS: update succeeds when version matches."""
         gid = str(uuid.uuid4())
         game = _make_game(models_mod, game_id=gid)
         session.add(game)
@@ -225,7 +193,6 @@ class TestPostgresCAS:
     async def test_cas_rejects_stale_version(
         self, session, models_mod, repo_mod, exceptions_mod,
     ):
-        """CAS fails cleanly when expected version does not match."""
         gid = str(uuid.uuid4())
         game = _make_game(models_mod, game_id=gid)
         session.add(game)
@@ -254,7 +221,6 @@ class TestPostgresCAS:
     async def test_concurrent_cas_one_wins_postgres(
         self, pg_engine, models_mod, repo_mod, exceptions_mod,
     ):
-        """Two concurrent Postgres sessions CAS the same round — exactly one wins."""
         from sqlalchemy.ext.asyncio import async_sessionmaker
 
         Session = async_sessionmaker(pg_engine, expire_on_commit=False)
@@ -307,21 +273,13 @@ class TestPostgresCAS:
             assert final.state_version == 2
             assert final.pot_amount in (250, 350)  # 150+100 or 150+200
 
-
-# ═══════════════════════════════════════════════════════════════════════
-#  Postgres Idempotency tests
-# ═══════════════════════════════════════════════════════════════════════
-
 @requires_postgres
 @pytest.mark.postgres
 class TestPostgresIdempotency:
-    """Verify round-scoped idempotency constraints under Postgres."""
-
     @pytest.mark.asyncio
     async def test_duplicate_key_same_round_rejected(
         self, session, models_mod,
     ):
-        """Postgres enforces the composite unique constraint."""
         from sqlalchemy.exc import IntegrityError
 
         gid = str(uuid.uuid4())
@@ -354,7 +312,6 @@ class TestPostgresIdempotency:
     async def test_same_key_different_rounds_allowed(
         self, session, models_mod,
     ):
-        """Same idempotency key across different rounds should succeed."""
         gid = str(uuid.uuid4())
         game = _make_game(models_mod, game_id=gid)
         session.add(game)
@@ -387,7 +344,6 @@ class TestPostgresIdempotency:
     async def test_concurrent_duplicate_inserts(
         self, pg_engine, models_mod,
     ):
-        """Two sessions inserting the same key+round concurrently — one rejected."""
         from sqlalchemy.ext.asyncio import async_sessionmaker
         from sqlalchemy.exc import IntegrityError
 
@@ -424,33 +380,23 @@ class TestPostgresIdempotency:
         assert results["success"] == 1
         assert results["rejected"] == 1
 
-
-# ═══════════════════════════════════════════════════════════════════════
-#  Postgres Session Runtime Persistence
-# ═══════════════════════════════════════════════════════════════════════
-
 @requires_postgres
 @pytest.mark.postgres
 class TestPostgresRuntimePersistence:
-    """Verify that session runtime counters persist across transactions."""
-
     @pytest.mark.asyncio
     async def test_hands_played_survives_commit(
         self, session, models_mod,
     ):
-        """hands_played written in one transaction is visible after reload."""
         gid = str(uuid.uuid4())
         game = _make_game(models_mod, game_id=gid, hands_played=0)
         session.add(game)
         await session.commit()
 
-        # Simulate record_hand_completed persistence
         fetched = await repo_mod_fetch(session, models_mod, gid)
         fetched.hands_played = 5
         fetched.hands_at_current_level = 5
         await session.commit()
 
-        # Reload and verify
         reloaded = await repo_mod_fetch(session, models_mod, gid)
         assert reloaded.hands_played == 5
         assert reloaded.hands_at_current_level == 5
@@ -459,7 +405,6 @@ class TestPostgresRuntimePersistence:
     async def test_blind_advancement_persisted(
         self, session, models_mod,
     ):
-        """Blind level change from record_hand_completed is durable."""
         gid = str(uuid.uuid4())
         game = _make_game(
             models_mod, game_id=gid,
@@ -470,7 +415,6 @@ class TestPostgresRuntimePersistence:
         await session.commit()
 
         fetched = await repo_mod_fetch(session, models_mod, gid)
-        # Simulate what record_hand_completed does
         fetched.hands_played = 10
         fetched.hands_at_current_level = 0
         fetched.current_blind_level = 2
@@ -480,7 +424,6 @@ class TestPostgresRuntimePersistence:
         assert reloaded.current_blind_level == 2
         assert reloaded.hands_at_current_level == 0
         assert reloaded.hands_played == 10
-
 
 async def repo_mod_fetch(session, models_mod, game_id):
     from sqlalchemy import select

@@ -83,7 +83,6 @@ class Round(Base):
         CheckConstraint("state_version >= 1", name="ck_rounds_state_version_positive"),
     )
 
-
 class RoundPlayer(Base):
     __tablename__ = TableName.ROUND_PLAYERS
 
@@ -105,7 +104,6 @@ class RoundPlayer(Base):
         CheckConstraint("committed_this_street >= 0", name="ck_round_players_street_commit_non_negative"),
         CheckConstraint("committed_this_hand >= 0", name="ck_round_players_hand_commit_non_negative"),
     )
-
 
 class RoundPayout(Base):
     __tablename__ = TableName.ROUND_PAYOUTS
@@ -166,7 +164,6 @@ class HandLedgerEntry(Base):
         ),
     )
 
-
 class RoomSnapshot(Base):
     __tablename__ = TableName.ROOM_SNAPSHOTS
 
@@ -175,7 +172,6 @@ class RoomSnapshot(Base):
     room_id = Column(String, nullable=False)
     starting_dealer_seat = Column(Integer, nullable=False, default=1)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
-
 
 class RoomSnapshotPlayer(Base):
     __tablename__ = TableName.ROOM_SNAPSHOT_PLAYERS
@@ -194,7 +190,6 @@ class RoomSnapshotPlayer(Base):
         CheckConstraint("chip_count >= 0", name="ck_room_snap_players_chips_non_negative"),
     )
 
-
 class RoomSnapshotBlindLevel(Base):
     __tablename__ = TableName.ROOM_SNAPSHOT_BLIND_LEVELS
 
@@ -209,6 +204,5 @@ class RoomSnapshotBlindLevel(Base):
     __table_args__ = (
         UniqueConstraint("game_id", "level", name="uq_room_snap_blind_levels_game_level"),
     )
-
 
 OutboxEvent = make_outbox_event_model(Base)

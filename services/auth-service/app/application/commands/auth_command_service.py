@@ -9,12 +9,7 @@ from ...domain.constants import ErrorMessage, ResponseKey, TokenClaim, TokenType
 from ...domain.models import AuthUser, AuthSession
 from ...domain.schemas import Register, Login, RefreshRequest, LogoutRequest
 from ...infrastructure.password_hasher import password_hasher
-from ...infrastructure.token_service import (
-    JWTError,
-    decode_token,
-    hash_token,
-    issue_token_pair,
-)
+from ...infrastructure.token_service import JWTError, decode_token, hash_token, issue_token_pair
 
 class AuthCommandService:
     def __init__(self, db: AsyncSession):

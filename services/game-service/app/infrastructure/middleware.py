@@ -14,9 +14,7 @@ logger = get_logger("game-service.middleware")
 
 CORRELATION_HEADER = "X-Correlation-ID"
 
-
 class CorrelationIdMiddleware(BaseHTTPMiddleware):
-
     async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
         cid = request.headers.get(CORRELATION_HEADER) or str(uuid.uuid4())
         token = correlation_id_ctx.set(cid)

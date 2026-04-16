@@ -4,7 +4,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Protocol
 
-
 @dataclass(frozen=True, slots=True)
 class BlindLevelConfig:
     level: int
@@ -13,7 +12,6 @@ class BlindLevelConfig:
     ante: int = 0
     duration_minutes: int | None = None
 
-
 @dataclass(frozen=True, slots=True)
 class PlayerConfig:
     player_id: str
@@ -21,7 +19,6 @@ class PlayerConfig:
     chip_count: int
     is_active: bool
     is_eliminated: bool
-
 
 @dataclass(frozen=True, slots=True)
 class RoomConfig:
@@ -44,9 +41,7 @@ class RoomConfig:
     def blind_level(self, level_num: int) -> BlindLevelConfig | None:
         return next((bl for bl in self.blind_levels if bl.level == level_num), None)
 
-
 class RoomConfigProvider(Protocol):
-
     async def fetch_live(self, room_id: str) -> RoomConfig:
         ...
 

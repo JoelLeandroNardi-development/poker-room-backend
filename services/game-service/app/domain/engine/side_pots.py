@@ -3,7 +3,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-
 @dataclass(frozen=True, slots=True)
 class PlayerContribution:
 
@@ -12,7 +11,6 @@ class PlayerContribution:
     has_folded: bool
     reached_showdown: bool
 
-
 @dataclass(frozen=True, slots=True)
 class Pot:
 
@@ -20,7 +18,6 @@ class Pot:
     amount: int
     contributor_player_ids: tuple[str, ...]
     eligible_winner_player_ids: tuple[str, ...]
-
 
 def calculate_side_pots(players: list[PlayerContribution]) -> list[Pot]:
     if not players:
@@ -69,7 +66,6 @@ def calculate_side_pots(players: list[PlayerContribution]) -> list[Pot]:
         for idx, p in enumerate(merged)
     ]
 
-
 def _merge_dead_pots(raw_pots: list[dict]) -> list[dict]:
     if not raw_pots:
         return []
@@ -117,7 +113,6 @@ def _merge_dead_pots(raw_pots: list[dict]) -> list[dict]:
         )
 
     return result
-
 
 def _unique_ordered(items: list[str]) -> list[str]:
     seen: set[str] = set()

@@ -6,7 +6,6 @@ from dataclasses import dataclass, field
 
 from .hand_ledger import HandState, LedgerRow, apply_entry, rebuild_hand_state
 
-
 @dataclass(frozen=True, slots=True)
 class HandStep:
 
@@ -17,7 +16,6 @@ class HandStep:
     amount: int | None
     state_after: HandState
 
-
 @dataclass(slots=True)
 class ReplayResult:
 
@@ -25,7 +23,6 @@ class ReplayResult:
     final_state: HandState = field(default_factory=HandState)
     entry_count: int = 0
     is_consistent: bool = True
-
 
 def replay_hand(entries: list[LedgerRow]) -> ReplayResult:
     result = ReplayResult(entry_count=len(entries))
@@ -45,7 +42,6 @@ def replay_hand(entries: list[LedgerRow]) -> ReplayResult:
 
     result.final_state = deepcopy(state) if entries else HandState()
     return result
-
 
 def verify_consistency(
     entries: list[LedgerRow],

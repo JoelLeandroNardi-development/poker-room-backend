@@ -10,7 +10,6 @@ from ..domain.events import build_event
 from ..domain.models import Bet, HandLedgerEntry, OutboxEvent
 from shared.core.outbox.helpers import add_outbox_event
 
-
 def record_bet_action(
     db: AsyncSession,
     *,
@@ -56,7 +55,6 @@ def record_bet_action(
     add_outbox_event(db, OutboxEvent, event)
 
     return bet, ledger_entry
-
 
 def append_ledger_entry(
     db: AsyncSession,

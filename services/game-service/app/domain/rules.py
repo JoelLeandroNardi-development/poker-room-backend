@@ -5,7 +5,6 @@ from dataclasses import dataclass
 
 from .constants import Street
 
-
 @dataclass(frozen=True, slots=True)
 class RulesProfile:
 
@@ -21,7 +20,6 @@ class RulesProfile:
     all_in_reopens_action: bool
     dead_button_rule: bool
     engine_version: str
-
 
 NO_LIMIT_HOLDEM = RulesProfile(
     name="No-Limit Texas Hold'em",

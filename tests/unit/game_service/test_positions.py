@@ -28,7 +28,7 @@ class TestAssignPositions:
         seats = [1, 2]
         dealer, sb, bb = cmd_service_class._assign_positions(seats, starting_dealer=1)
         assert dealer == 1
-        assert sb == 1  # heads-up: dealer IS small blind
+        assert sb == 1
         assert bb == 2
 
     def test_two_players_starting_at_seat2(self, cmd_service_class):
@@ -62,7 +62,7 @@ class TestAssignPositions:
     def test_starting_dealer_not_in_seats_defaults(self, cmd_service_class):
         seats = [2, 4, 6]
         dealer, sb, bb = cmd_service_class._assign_positions(seats, starting_dealer=99)
-        assert dealer == 2  # defaults to first seat
+        assert dealer == 2
         assert sb == 4
         assert bb == 6
 
@@ -86,7 +86,7 @@ class TestRotatePositions:
         seats = [1, 2]
         dealer, sb, bb = cmd_service_class._rotate_positions(seats, current_dealer=1)
         assert dealer == 2
-        assert sb == 2  # heads-up: dealer IS small blind
+        assert sb == 2
         assert bb == 1
 
     def test_four_player_rotation(self, cmd_service_class):
@@ -99,7 +99,6 @@ class TestRotatePositions:
     def test_current_dealer_not_in_seats(self, cmd_service_class):
         seats = [2, 4, 6]
         dealer, sb, bb = cmd_service_class._rotate_positions(seats, current_dealer=99)
-        # when dealer not found, defaults to index 0
         assert dealer == 2
         assert sb == 4
         assert bb == 6

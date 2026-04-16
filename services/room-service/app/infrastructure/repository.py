@@ -30,7 +30,6 @@ async def get_players_in_room(db: AsyncSession, room_id: str) -> list[RoomPlayer
     )
     return list(res.scalars().all())
 
-
 async def count_players_in_room(db: AsyncSession, room_id: str) -> int:
     res = await db.execute(
         select(func.count(RoomPlayer.id)).where(RoomPlayer.room_id == room_id)

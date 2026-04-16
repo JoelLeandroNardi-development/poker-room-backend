@@ -19,7 +19,6 @@ from .routes.bet_routes import router as bet_router
 
 CORRELATION_HEADER = "X-Correlation-ID"
 
-
 class GatewayCorrelationMiddleware(BaseHTTPMiddleware):
 
     async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
@@ -28,7 +27,6 @@ class GatewayCorrelationMiddleware(BaseHTTPMiddleware):
         response = await call_next(request)
         response.headers[CORRELATION_HEADER] = cid
         return response
-
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):

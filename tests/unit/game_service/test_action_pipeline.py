@@ -16,16 +16,14 @@ os.environ.setdefault("GAME_DB", "sqlite+aiosqlite:///:memory:")
 os.environ.setdefault("RABBIT_URL", "amqp://guest:guest@localhost:5672/")
 os.environ.setdefault("EXCHANGE_NAME", "test_exchange")
 
-
 @pytest.fixture(scope="module")
 def pipeline_module():
     return load_service_app_module(
         "game-service",
-        "domain/action_pipeline",
+        "domain/engine/action_pipeline",
         package_name="game_pipeline_test_app",
         reload_modules=True,
     )
-
 
 @pytest.fixture(scope="module")
 def models_module():
@@ -35,7 +33,6 @@ def models_module():
         package_name="game_pipeline_test_app",
     )
 
-
 @pytest.fixture(scope="module")
 def constants_module():
     return load_service_app_module(
@@ -43,7 +40,6 @@ def constants_module():
         "domain/constants",
         package_name="game_pipeline_test_app",
     )
-
 
 @pytest.fixture(scope="module")
 def exceptions_module():
@@ -53,36 +49,29 @@ def exceptions_module():
         package_name="game_pipeline_test_app",
     )
 
-
 @pytest.fixture
 def Round(models_module):
     return models_module.Round
-
 
 @pytest.fixture
 def RoundPlayer(models_module):
     return models_module.RoundPlayer
 
-
 @pytest.fixture
 def apply_action(pipeline_module):
     return pipeline_module.apply_action
-
 
 @pytest.fixture
 def BetAction(constants_module):
     return constants_module.BetAction
 
-
 @pytest.fixture
 def RoundStatus(constants_module):
     return constants_module.RoundStatus
 
-
 @pytest.fixture
 def Street(constants_module):
     return constants_module.Street
-
 
 def _make_round(Round, Street, RoundStatus, **overrides):
     defaults = dict(
@@ -106,7 +95,6 @@ def _make_round(Round, Street, RoundStatus, **overrides):
     defaults.update(overrides)
     return Round(**defaults)
 
-
 def _make_player(RoundPlayer, pid, seat, stack, committed_street=0, committed_hand=0, **overrides):
     defaults = dict(
         round_id="r1",
@@ -121,9 +109,6 @@ def _make_player(RoundPlayer, pid, seat, stack, committed_street=0, committed_ha
     )
     defaults.update(overrides)
     return RoundPlayer(**defaults)
-
-
-# ── Basic action tests ───────────────────────────────────────────────
 
 class TestApplyActionFold:
     def test_fold_marks_player_folded(self, apply_action, Round, RoundPlayer, BetAction, RoundStatus, Street):
@@ -156,7 +141,6 @@ class TestApplyActionFold:
 
         assert game_round.pot_amount == 200
 
-
 class TestApplyActionCall:
     def test_call_deducts_chips_and_adds_to_pot(self, apply_action, Round, RoundPlayer, BetAction, RoundStatus, Street):
         game_round = _make_round(Round, Street, RoundStatus, acting_player_id="p4", pot_amount=150)
@@ -176,7 +160,6 @@ class TestApplyActionCall:
         assert p4.committed_this_hand == 100
         assert game_round.pot_amount == 250
 
-
 class TestApplyActionRaise:
     def test_raise_updates_highest_bet_and_min_raise(self, apply_action, Round, RoundPlayer, BetAction, RoundStatus, Street):
         game_round = _make_round(Round, Street, RoundStatus, acting_player_id="p4", pot_amount=150, current_highest_bet=100, minimum_raise_amount=100)
@@ -194,8 +177,7 @@ class TestApplyActionRaise:
         assert p4.stack_remaining == 800
         assert p4.committed_this_street == 200
         assert game_round.current_highest_bet == 200
-        assert game_round.minimum_raise_amount == 100  # raise increment = 200 - 100 = 100
-
+        assert game_round.minimum_raise_amount == 100
 
 class TestApplyActionBet:
     def test_opening_bet_on_clean_street(self, apply_action, Round, RoundPlayer, BetAction, RoundStatus, Street):
@@ -221,7 +203,6 @@ class TestApplyActionBet:
         assert game_round.current_highest_bet == 200
         assert game_round.pot_amount == 400
 
-
 class TestApplyActionAllIn:
     def test_explicit_all_in(self, apply_action, Round, RoundPlayer, BetAction, RoundStatus, Street):
         game_round = _make_round(
@@ -246,7 +227,6 @@ class TestApplyActionAllIn:
         assert players[0].is_all_in is True
         assert game_round.pot_amount == 250
 
-
 class TestApplyActionCheck:
     def test_check_no_state_change(self, apply_action, Round, RoundPlayer, BetAction, RoundStatus, Street):
         game_round = _make_round(
@@ -269,12 +249,8 @@ class TestApplyActionCheck:
         assert players[0].stack_remaining == 900
         assert game_round.pot_amount == 200
 
-
-# ── Turn progression / round closure tests ───────────────────────────
-
 class TestApplyActionTurnProgression:
     def test_next_player_after_action(self, apply_action, Round, RoundPlayer, BetAction, RoundStatus, Street):
-        """After p4 calls, the next player should be p2 (SB who hasn't matched BB yet)."""
         game_round = _make_round(Round, Street, RoundStatus, acting_player_id="p4", pot_amount=150)
         players = [
             _make_player(RoundPlayer, "p2", 2, 950, 50, 50),
@@ -309,7 +285,6 @@ class TestApplyActionTurnProgression:
         assert game_round.acting_player_id is None
 
     def test_everyone_folds_closes_round(self, apply_action, Round, RoundPlayer, BetAction, RoundStatus, Street):
-        """When only one player remains, the round should close."""
         game_round = _make_round(
             Round, Street, RoundStatus,
             acting_player_id="p3",
@@ -325,9 +300,6 @@ class TestApplyActionTurnProgression:
         result = apply_action(game_round, players, "p3", "FOLD", 0)
 
         assert result.is_round_closed is True
-
-
-# ── Validation errors ────────────────────────────────────────────────
 
 class TestApplyActionValidationErrors:
     def test_not_your_turn(self, apply_action, Round, RoundPlayer, BetAction, RoundStatus, Street, exceptions_module):

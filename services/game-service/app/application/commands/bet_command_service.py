@@ -5,19 +5,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..action_helpers import record_bet_action
 from ..mappers import bet_to_response
-from ...domain.constants import (
-    BetAction, ErrorMessage, VALID_BET_ACTIONS,
-)
-from ...domain.action_pipeline import apply_action
-from ...domain.exceptions import DuplicateActionError, IdempotencyConflict, IllegalAction
-from ...domain.models import Bet, Round, RoundPlayer
+from ...domain.constants import ErrorMessage, VALID_BET_ACTIONS
+from ...domain.engine.action_pipeline import apply_action
+from ...domain.exceptions import IdempotencyConflict, IllegalAction
+from ...domain.models import Bet, Round
 from ...infrastructure.logging import get_logger
 from ...infrastructure.repository import get_round_players, fetch_or_raise, cas_update_round
 from shared.core.db.session import atomic
 from shared.schemas.bets import BetResponse, PlaceBet
 
 logger = get_logger("game-service.bet_command")
-
 
 class BetCommandService:
     def __init__(self, db: AsyncSession):

@@ -63,7 +63,6 @@ class GameEventType(StrEnum):
     BET_PLACED = "bet.placed"
     FINISHED = "game.finished"
 
-
 class EventKey(StrEnum):
     EVENT_ID = "event_id"
     EVENT_TYPE = "event_type"

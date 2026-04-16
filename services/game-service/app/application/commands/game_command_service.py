@@ -17,19 +17,17 @@ from ...domain.exceptions import (
     PayoutEmpty, PayoutExceedsPot, PayoutMismatch, RoundNotActive,
 )
 from ...domain.models import Game, OutboxEvent, Round, RoundPlayer, RoundPayout
-from ...domain.payout_validation import validate_payouts_against_side_pots
+from ...domain.engine.payout_validation import validate_payouts_against_side_pots
 from ...domain.schemas import (
-    GameResponse, RoundResponse, RoundPlayerResponse, StartGame,
-    DeclareWinner, DeclareWinnerResponse,
-    ResolveHandRequest, ResolveHandResponse,
-    AdvanceBlindsResponse, AdvanceStreetResponse, EndGameResponse,
+    GameResponse, RoundResponse, StartGame, DeclareWinner, DeclareWinnerResponse, ResolveHandRequest, 
+    ResolveHandResponse, AdvanceBlindsResponse, AdvanceStreetResponse, EndGameResponse,
 )
-from ...domain.blind_posting import SeatPlayer, post_blinds_and_antes
+from ...domain.engine.blind_posting import SeatPlayer, post_blinds_and_antes
 from ...domain.rules import NO_LIMIT_HOLDEM
-from ...domain.street_progression import PlayerSeat, evaluate_street_end
+from ...domain.engine.street_progression import PlayerSeat, evaluate_street_end
 from ...infrastructure.repository import (
     count_rounds, get_active_game_for_room, get_active_round,
-    get_round_players, get_round_payouts, fetch_or_raise,
+    get_round_players, fetch_or_raise,
 )
 from ...infrastructure.room_config import (
     fetch_room_config_http, load_room_snapshot, save_room_snapshot,

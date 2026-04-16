@@ -11,7 +11,6 @@ from ...domain.schemas import RoomResponse, RoomDetailResponse, RoomPlayerRespon
 from ...infrastructure.repository import get_players_in_room, get_blind_levels, get_room_by_code
 from shared.core.db.crud import fetch_or_404
 
-
 class RoomQueryService:
     def __init__(self, db: AsyncSession):
         self.db = db

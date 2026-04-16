@@ -5,31 +5,21 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..mappers import game_to_response, round_to_response, round_player_to_response
 from ...domain.constants import BetAction, ErrorMessage, GameStatus
-from ...domain.hand_history import build_hand_timeline
-from ...domain.hand_ledger import LedgerRow, rebuild_hand_state
-from ...domain.hand_replay import replay_hand, verify_consistency
+from ...domain.ledger.hand_history import build_hand_timeline
+from ...domain.ledger.hand_ledger import LedgerRow
+from ...domain.ledger.hand_replay import replay_hand, verify_consistency
 from ...domain.models import Game, Round
 from ...domain.schemas import (
-    ConsistencyCheckResponse,
-    GameResponse,
-    LegalAction,
-    PlayerSnapshotResponse,
-    ReplayResponse,
-    ReplayStepResponse,
-    RoundResponse,
-    SettlementExplanationResponse,
-    TableStateResponse,
-    TimelineResponse,
-    TimelineStreetResponse,
-    PotExplanation as PotExplanationSchema,
+    ConsistencyCheckResponse, GameResponse, LegalAction, PlayerSnapshotResponse, ReplayResponse,
+    ReplayStepResponse, RoundResponse, SettlementExplanationResponse,TableStateResponse,
+    TimelineResponse, TimelineStreetResponse, PotExplanation as PotExplanationSchema,
 )
-from ...domain.settlement_explainer import explain_settlement
-from ...domain.side_pots import PlayerContribution
+from ...domain.reporting.settlement_explainer import explain_settlement
+from ...domain.engine.side_pots import PlayerContribution
 from ...infrastructure.repository import (
     get_ledger_entries, get_rounds_for_game, get_active_round,
     get_round_players, get_round_payouts, fetch_or_raise,
 )
-
 
 class GameQueryService:
     def __init__(self, db: AsyncSession):
@@ -81,7 +71,6 @@ class GameQueryService:
         players = await get_round_players(self.db, game_round.round_id)
         payouts = await get_round_payouts(self.db, game_round.round_id)
         return round_to_response(game_round, players, payouts)
-
 
     async def _ledger_rows(self, round_id: str) -> list[LedgerRow]:
         entries = await get_ledger_entries(self.db, round_id)

@@ -2,7 +2,6 @@ from pydantic import BaseModel, Field
 from typing import Optional
 from datetime import datetime
 
-
 class StartGame(BaseModel):
     room_id: str = Field(..., min_length=1)
 
@@ -31,7 +30,6 @@ class RoundPlayerResponse(BaseModel):
     has_folded: bool
     is_all_in: bool
     is_active_in_hand: bool
-
 
 class WinnerShare(BaseModel):
     player_id: str = Field(..., min_length=1)
@@ -66,7 +64,6 @@ class DeclareWinnerResponse(BaseModel):
     winner_player_id: str
     pot_amount: int
     status: str
-
 
 class RoundResponse(BaseModel):
     round_id: str
@@ -115,7 +112,6 @@ class AdvanceStreetResponse(BaseModel):
 class EndGameResponse(BaseModel):
     game_id: str
     status: str
-
 
 class ReverseActionRequest(BaseModel):
     original_entry_id: str = Field(..., min_length=1)
@@ -167,7 +163,6 @@ class HandStateResponse(BaseModel):
     entry_count: int
     players: list[PlayerSnapshotResponse]
 
-
 class ReplayStepResponse(BaseModel):
     step_number: int
     entry_id: str
@@ -210,7 +205,6 @@ class ConsistencyCheckResponse(BaseModel):
     is_consistent: bool
     discrepancies: list[str]
 
-
 class LegalAction(BaseModel):
     action: str
     min_amount: Optional[int] = None
@@ -235,7 +229,6 @@ class TableStateResponse(BaseModel):
     is_showdown_ready: bool = False
     legal_actions: list[LegalAction] = Field(default_factory=list)
     players: list[RoundPlayerResponse] = Field(default_factory=list)
-
 
 class SessionStatusResponse(BaseModel):
     game_id: str

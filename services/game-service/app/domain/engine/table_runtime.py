@@ -5,19 +5,16 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
 
-
 class SeatStatus(str, Enum):
     ACTIVE = "ACTIVE"
     SITTING_OUT = "SITTING_OUT"
     EMPTY = "EMPTY"
-
 
 class TableStatus(str, Enum):
     WAITING = "WAITING"
     RUNNING = "RUNNING"
     PAUSED = "PAUSED"
     FINISHED = "FINISHED"
-
 
 @dataclass
 class TableSeat:
@@ -28,10 +25,8 @@ class TableSeat:
     chip_count: int = 0
     hands_sat_out: int = 0
 
-
 @dataclass
 class BlindClock:
-
     current_level: int = 1
     level_started_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     hands_at_level: int = 0
@@ -59,7 +54,6 @@ class BlindClock:
 
     def record_hand(self) -> None:
         self.hands_at_level += 1
-
 
 @dataclass
 class TableRuntime:

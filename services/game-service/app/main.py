@@ -11,7 +11,7 @@ from .domain.exceptions import (
     DomainError, DuplicateActionError, IdempotencyConflict,
     NotFound, PlayerNotInHand, StaleStateError,
 )
-from .infrastructure.config import SERVICE_LOG_PREFIX, SERVICE_NAME
+from .infrastructure.config import SERVICE_NAME
 from .infrastructure.logging import configure_logging, get_logger
 from .infrastructure.middleware import CorrelationIdMiddleware
 from .infrastructure.messaging import publisher, RABBIT_URL, EXCHANGE_NAME
@@ -52,7 +52,6 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="Game Service", lifespan=lifespan)
 app.add_middleware(CorrelationIdMiddleware)
 app.include_router(router)
-
 
 @app.exception_handler(DomainError)
 async def _domain_error_handler(_request: Request, exc: DomainError) -> JSONResponse:

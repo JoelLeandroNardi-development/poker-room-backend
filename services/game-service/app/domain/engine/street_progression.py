@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from .constants import Street, StreetAdvanceAction
+from ..constants import Street, StreetAdvanceAction
 
 STREET_ORDER: tuple[str, ...] = (
     Street.PRE_FLOP,
@@ -12,7 +12,6 @@ STREET_ORDER: tuple[str, ...] = (
     Street.RIVER,
     Street.SHOWDOWN,
 )
-
 
 @dataclass(frozen=True, slots=True)
 class PlayerSeat:
@@ -23,7 +22,6 @@ class PlayerSeat:
     is_all_in: bool
     is_active_in_hand: bool
 
-
 @dataclass(frozen=True, slots=True)
 class StreetAdvanceResult:
 
@@ -31,7 +29,6 @@ class StreetAdvanceResult:
     next_street: str | None = None
     acting_player_id: str | None = None
     winning_player_id: str | None = None
-
 
 def next_street(current: str) -> str | None:
     try:
@@ -42,7 +39,6 @@ def next_street(current: str) -> str | None:
     if next_idx >= len(STREET_ORDER):
         return None
     return STREET_ORDER[next_idx]
-
 
 def find_first_to_act(
     eligible: list[PlayerSeat],
@@ -56,11 +52,10 @@ def find_first_to_act(
             return p.player_id
     return sorted_players[0].player_id
 
-
 def evaluate_street_end(
     current_street: str,
     dealer_seat: int,
-    big_blind_seat: int,  # noqa: ARG001 — reserved for pre-flop awareness
+    big_blind_seat: int,
     players: list[PlayerSeat],
 ) -> StreetAdvanceResult:
     not_folded = [

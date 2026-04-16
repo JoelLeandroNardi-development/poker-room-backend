@@ -21,48 +21,40 @@ os.environ.setdefault("GAME_DB", "sqlite+aiosqlite:///:memory:")
 os.environ.setdefault("RABBIT_URL", "amqp://guest:guest@localhost:5672/")
 os.environ.setdefault("EXCHANGE_NAME", "test_exchange")
 
-
-# ── Module fixtures ──────────────────────────────────────────────────
-
 @pytest.fixture(scope="module")
 def replay_mod():
     return load_service_app_module(
-        "game-service", "domain/hand_replay",
+        "game-service", "domain/ledger/hand_replay",
         package_name="engine_test_app", reload_modules=True,
     )
-
 
 @pytest.fixture(scope="module")
 def explainer_mod():
     return load_service_app_module(
-        "game-service", "domain/settlement_explainer",
+        "game-service", "domain/reporting/settlement_explainer",
         package_name="engine_test_app",
     )
-
 
 @pytest.fixture(scope="module")
 def timeline_mod():
     return load_service_app_module(
-        "game-service", "domain/hand_history",
+        "game-service", "domain/ledger/hand_history",
         package_name="engine_test_app",
     )
-
 
 @pytest.fixture(scope="module")
 def ledger_mod():
     return load_service_app_module(
-        "game-service", "domain/hand_ledger",
+        "game-service", "domain/ledger/hand_ledger",
         package_name="engine_test_app",
     )
-
 
 @pytest.fixture(scope="module")
 def side_pots_mod():
     return load_service_app_module(
-        "game-service", "domain/side_pots",
+        "game-service", "domain/engine/side_pots",
         package_name="engine_test_app",
     )
-
 
 @pytest.fixture(scope="module")
 def rules_mod():
@@ -71,40 +63,29 @@ def rules_mod():
         package_name="engine_test_app",
     )
 
-
-# ── Shortcut fixtures ───────────────────────────────────────────────
-
 @pytest.fixture
 def LedgerRow(ledger_mod):
     return ledger_mod.LedgerRow
-
 
 @pytest.fixture
 def replay_hand(replay_mod):
     return replay_mod.replay_hand
 
-
 @pytest.fixture
 def verify_consistency(replay_mod):
     return replay_mod.verify_consistency
-
 
 @pytest.fixture
 def explain_settlement(explainer_mod):
     return explainer_mod.explain_settlement
 
-
 @pytest.fixture
 def PlayerContribution(side_pots_mod):
     return side_pots_mod.PlayerContribution
 
-
 @pytest.fixture
 def build_hand_timeline(timeline_mod):
     return timeline_mod.build_hand_timeline
-
-
-# ── Helpers ──────────────────────────────────────────────────────────
 
 def _ledger(LedgerRow, entry_id, entry_type, player_id=None, amount=None,
             detail=None, original_entry_id=None):
@@ -117,14 +98,7 @@ def _ledger(LedgerRow, entry_id, entry_type, player_id=None, amount=None,
         original_entry_id=original_entry_id,
     )
 
-
-# ═══════════════════════════════════════════════════════════════════════
-#  Hand Replay Engine
-# ═══════════════════════════════════════════════════════════════════════
-
 class TestHandReplay:
-    """Step-by-step replay of a hand from ledger entries."""
-
     def test_empty_entries(self, replay_hand, LedgerRow):
         result = replay_hand([])
         assert result.entry_count == 0
@@ -145,7 +119,6 @@ class TestHandReplay:
         assert result.final_state.pot_total == 50
 
     def test_full_pre_flop_replay(self, replay_hand, LedgerRow):
-        """Blinds → bet → call → round complete."""
         entries = [
             _ledger(LedgerRow, "e1", "BLIND_POSTED", "p1", 50),
             _ledger(LedgerRow, "e2", "BLIND_POSTED", "p2", 100),
@@ -157,14 +130,12 @@ class TestHandReplay:
         assert result.entry_count == 5
         assert len(result.steps) == 5
 
-        # Check intermediate states
         assert result.steps[0].state_after.pot_total == 50
         assert result.steps[1].state_after.pot_total == 150
         assert result.steps[2].state_after.pot_total == 250
         assert result.steps[3].state_after.pot_total == 300
         assert result.steps[4].state_after.is_completed is True
 
-        # Final
         assert result.final_state.pot_total == 300
         assert result.final_state.is_completed is True
         assert result.final_state.players["p1"].total_committed == 100
@@ -199,15 +170,11 @@ class TestHandReplay:
         assert "e3" in result.final_state.reversed_entry_ids
         assert result.final_state.pot_total == 150  # (50 + 100 + 50) - 50 reversed
 
-        # Step-by-step check
         assert result.steps[3].state_after.is_completed is True
         assert result.steps[4].state_after.is_completed is False
         assert result.steps[4].state_after.is_reopened is True
 
-
 class TestVerifyConsistency:
-    """Verify replayed state matches live projection."""
-
     def test_consistent_state(self, verify_consistency, LedgerRow):
         entries = [
             _ledger(LedgerRow, "e1", "BLIND_POSTED", "p1", 50),
@@ -264,14 +231,7 @@ class TestVerifyConsistency:
         )
         assert any("p2" in d for d in discrepancies)
 
-
-# ═══════════════════════════════════════════════════════════════════════
-#  Settlement Explanation Engine
-# ═══════════════════════════════════════════════════════════════════════
-
 class TestSettlementExplainer:
-    """Structured settlement explanation with narrative."""
-
     def test_single_pot_no_payouts(self, explain_settlement, PlayerContribution):
         contributions = [
             PlayerContribution("p1", 100, False, True),
@@ -302,7 +262,6 @@ class TestSettlementExplainer:
         assert result.pots[0].winners[0].amount == 200
 
     def test_side_pot_structure(self, explain_settlement, PlayerContribution):
-        """3 players, one all-in short → creates main + side pot."""
         contributions = [
             PlayerContribution("p1", 50, False, True),    # short all-in
             PlayerContribution("p2", 200, False, True),
@@ -339,7 +298,6 @@ class TestSettlementExplainer:
         assert any("2 pots" in line for line in result.narrative)
 
     def test_dead_pot_narrative(self, explain_settlement, PlayerContribution):
-        """All players fold — dead pot scenario."""
         contributions = [
             PlayerContribution("p1", 50, True, False),
             PlayerContribution("p2", 100, True, False),
@@ -348,19 +306,11 @@ class TestSettlementExplainer:
         assert result.total_pot == 150
         assert any("dead pot" in line.lower() for line in result.narrative)
 
-
-# ═══════════════════════════════════════════════════════════════════════
-#  Hand History Timeline
-# ═══════════════════════════════════════════════════════════════════════
-
 class TestHandTimeline:
-    """Structured per-street timeline from ledger entries."""
-
     def test_empty_entries(self, build_hand_timeline, LedgerRow):
         tl = build_hand_timeline("r1", [])
         assert tl.round_id == "r1"
         assert tl.total_entries == 0
-        # Still has the implicit PRE_FLOP street
         assert len(tl.streets) == 1
         assert tl.streets[0].street == "PRE_FLOP"
 
@@ -375,7 +325,6 @@ class TestHandTimeline:
         assert tl.streets[0].pot_at_end == 150
 
     def test_street_transition(self, build_hand_timeline, LedgerRow):
-        """PRE_FLOP → FLOP transition."""
         entries = [
             _ledger(LedgerRow, "e1", "BLIND_POSTED", "p1", 50),
             _ledger(LedgerRow, "e2", "BLIND_POSTED", "p2", 100),
@@ -420,7 +369,6 @@ class TestHandTimeline:
         assert tl.corrections[1].original_entry_id == "e1"
 
     def test_pot_running_totals(self, build_hand_timeline, LedgerRow):
-        """Each action tracks a running pot total."""
         entries = [
             _ledger(LedgerRow, "e1", "BLIND_POSTED", "p1", 50),
             _ledger(LedgerRow, "e2", "BLIND_POSTED", "p2", 100),
@@ -433,7 +381,6 @@ class TestHandTimeline:
         assert actions[2].pot_running_total == 350
 
     def test_multi_street_full_hand(self, build_hand_timeline, LedgerRow):
-        """PRE_FLOP → FLOP → TURN → RIVER with actions on each street."""
         entries = [
             _ledger(LedgerRow, "e1", "BLIND_POSTED", "p1", 50),
             _ledger(LedgerRow, "e2", "BLIND_POSTED", "p2", 100),
@@ -455,14 +402,7 @@ class TestHandTimeline:
         assert tl.is_completed is True
         assert len(tl.payouts) == 1
 
-
-# ═══════════════════════════════════════════════════════════════════════
-#  Rules Profile
-# ═══════════════════════════════════════════════════════════════════════
-
 class TestRulesProfile:
-    """Verify the pre-built rules profile."""
-
     def test_nlhe_profile_exists(self, rules_mod):
         profile = rules_mod.NO_LIMIT_HOLDEM
         assert profile.name == "No-Limit Texas Hold'em"

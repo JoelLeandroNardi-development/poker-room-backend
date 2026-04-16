@@ -3,14 +3,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-
 @dataclass(frozen=True)
 class SeatPlayer:
 
     player_id: str
     seat_number: int
     stack: int
-
 
 @dataclass(frozen=True)
 class PostedPlayer:
@@ -22,14 +20,12 @@ class PostedPlayer:
     committed_this_hand: int
     is_all_in: bool
 
-
 @dataclass(frozen=True)
 class BlindPostingResult:
 
     players: list[PostedPlayer]
     pot_total: int
     current_highest_bet: int
-
 
 def post_blinds_and_antes(
     players: list[SeatPlayer],

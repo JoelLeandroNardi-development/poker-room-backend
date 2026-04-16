@@ -3,15 +3,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from .side_pots import PlayerContribution, Pot, calculate_side_pots
-
+from ..engine.side_pots import PlayerContribution, calculate_side_pots
 
 @dataclass(frozen=True, slots=True)
 class WinnerDetail:
 
     player_id: str
     amount: int
-
 
 @dataclass(frozen=True, slots=True)
 class PotExplanation:
@@ -26,7 +24,6 @@ class PotExplanation:
     awarded_total: int
     unclaimed: int
 
-
 @dataclass(slots=True)
 class SettlementExplanation:
 
@@ -35,7 +32,6 @@ class SettlementExplanation:
     total_unclaimed: int = 0
     pots: list[PotExplanation] = field(default_factory=list)
     narrative: list[str] = field(default_factory=list)
-
 
 def explain_settlement(
     contributions: list[PlayerContribution],
@@ -101,7 +97,6 @@ def explain_settlement(
 
     result.narrative = _build_narrative(result, player_status)
     return result
-
 
 def _build_narrative(
     explanation: SettlementExplanation,

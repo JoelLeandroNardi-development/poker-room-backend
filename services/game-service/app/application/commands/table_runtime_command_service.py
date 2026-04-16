@@ -4,11 +4,10 @@ from __future__ import annotations
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..mappers import game_to_response
 from ...domain.constants import GameStatus, ErrorMessage
-from ...domain.exceptions import GameNotActive, NotFound
+from ...domain.exceptions import GameNotActive
 from ...domain.models import Game
-from ...domain.table_runtime import (
+from ...domain.engine.table_runtime import (
     BlindClock, SeatStatus, TableRuntime, TableSeat, TableStatus,
 )
 from ...infrastructure.logging import get_logger
@@ -17,7 +16,6 @@ from ...infrastructure.room_config import load_room_snapshot
 from shared.core.db.session import atomic
 
 logger = get_logger("game-service.table_runtime")
-
 
 def _build_runtime_from_game(game: Game, seats: list[TableSeat]) -> TableRuntime:
     return TableRuntime(
@@ -37,7 +35,6 @@ def _build_runtime_from_game(game: Game, seats: list[TableSeat]) -> TableRuntime
         hands_played=game.hands_played,
         dealer_seat=game.current_dealer_seat,
     )
-
 
 class TableRuntimeCommandService:
     def __init__(self, db: AsyncSession):

@@ -9,17 +9,15 @@ from ..application.queries.game_query_service import GameQueryService
 from ..application.queries.bet_query_service import BetQueryService
 from ..application.mappers import ledger_entry_to_response, hand_state_to_response
 from ..domain.schemas import (
-    StartGame, GameResponse, RoundResponse,
-    DeclareWinner, DeclareWinnerResponse,
-    ResolveHandRequest, ResolveHandResponse,
-    AdvanceBlindsResponse, AdvanceStreetResponse, EndGameResponse,
-    ReverseActionRequest, AdjustStackRequest, ReopenHandRequest,
-    CorrectPayoutRequest, LedgerEntryResponse, HandStateResponse,
-    ReplayResponse, TimelineResponse, SettlementExplanationResponse,
-    ConsistencyCheckResponse, TableStateResponse, SessionStatusResponse,
+    StartGame, GameResponse, RoundResponse, DeclareWinner, DeclareWinnerResponse,
+    ResolveHandRequest, ResolveHandResponse, AdvanceBlindsResponse, AdvanceStreetResponse, 
+    EndGameResponse, ReverseActionRequest, AdjustStackRequest, ReopenHandRequest,
+    CorrectPayoutRequest, LedgerEntryResponse, HandStateResponse, ReplayResponse, 
+    TimelineResponse, SettlementExplanationResponse, ConsistencyCheckResponse, 
+    TableStateResponse, SessionStatusResponse,
 )
-from shared.schemas.bets import PlaceBet, BetResponse, PotResponse, PlayerBetSummary
 from ..infrastructure.db import SessionLocal
+from shared.schemas.bets import PlaceBet, BetResponse, PotResponse, PlayerBetSummary
 from shared.core.db.session import make_get_db
 
 router = APIRouter()
@@ -73,7 +71,6 @@ async def advance_blinds(game_id: str, db: AsyncSession = Depends(get_db)):
 async def end_game(game_id: str, db: AsyncSession = Depends(get_db)):
     return await GameCommandService(db).end_game(game_id)
 
-
 @router.get("/rounds/{round_id}/ledger", response_model=list[LedgerEntryResponse])
 async def get_ledger(round_id: str, db: AsyncSession = Depends(get_db)):
     svc = CorrectionCommandService(db)
@@ -123,7 +120,6 @@ async def correct_payout(round_id: str, data: CorrectPayoutRequest, db: AsyncSes
     )
     return ledger_entry_to_response(entry)
 
-
 @router.post("/bets", response_model=BetResponse)
 async def place_bet(data: PlaceBet, db: AsyncSession = Depends(get_db)):
     return await BetCommandService(db).place_bet(data)
@@ -139,7 +135,6 @@ async def get_pot(round_id: str, db: AsyncSession = Depends(get_db)):
 @router.get("/bets/round/{round_id}/players", response_model=list[PlayerBetSummary])
 async def get_player_summaries(round_id: str, db: AsyncSession = Depends(get_db)):
     return await BetQueryService(db).get_player_summaries(round_id)
-
 
 @router.get("/rounds/{round_id}/replay", response_model=ReplayResponse)
 async def get_replay(round_id: str, db: AsyncSession = Depends(get_db)):
@@ -160,7 +155,6 @@ async def check_consistency(round_id: str, db: AsyncSession = Depends(get_db)):
 @router.get("/rounds/{round_id}/table-state", response_model=TableStateResponse)
 async def get_table_state(round_id: str, db: AsyncSession = Depends(get_db)):
     return await GameQueryService(db).get_table_state(round_id)
-
 
 @router.post("/games/{game_id}/pause")
 async def pause_table(game_id: str, db: AsyncSession = Depends(get_db)):

@@ -14,7 +14,6 @@ down_revision = "003"
 from alembic import op
 import sqlalchemy as sa
 
-
 def upgrade() -> None:
     op.add_column(
         "games",
@@ -30,7 +29,6 @@ def upgrade() -> None:
     op.create_check_constraint(
         "ck_games_hands_at_level_non_negative", "games", "hands_at_current_level >= 0"
     )
-
 
 def downgrade() -> None:
     op.drop_constraint("ck_games_hands_at_level_non_negative", "games", type_="check")

@@ -12,7 +12,6 @@ from ..config import (
 DEFAULT_TIMEOUT = 10.0
 
 class ServiceClient:
-
     CORRELATION_HEADER = "X-Correlation-ID"
 
     def __init__(self, base_url: str, timeout: float = DEFAULT_TIMEOUT):

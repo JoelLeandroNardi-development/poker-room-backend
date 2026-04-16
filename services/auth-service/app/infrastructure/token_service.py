@@ -7,19 +7,14 @@ from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
 from jose import JWTError, jwt
-
-from ..domain.constants import TokenClaim, TokenType
 from .config import (
-    ACCESS_TOKEN_TTL_MIN,
-    JWT_ALGORITHM,
-    JWT_SECRET,
-    JWT_SECRET_MISSING_ERROR,
-    REFRESH_TOKEN_TTL_DAYS,
+    ACCESS_TOKEN_TTL_MIN, JWT_ALGORITHM, JWT_SECRET,
+    JWT_SECRET_MISSING_ERROR, REFRESH_TOKEN_TTL_DAYS,
 )
+from ..domain.constants import TokenClaim, TokenType
 
 if not JWT_SECRET:
     raise RuntimeError(JWT_SECRET_MISSING_ERROR)
-
 
 @dataclass
 class TokenPair:
@@ -74,7 +69,6 @@ def issue_token_pair(*, user_email: str, roles: list[str], session_id: str) -> T
         access_expires_at=access_expires_at,
         refresh_expires_at=refresh_expires_at,
     )
-
 
 __all__ = [
     "JWTError",

@@ -1,6 +1,6 @@
 from sqlalchemy import Column, DateTime, ForeignKey, Integer, String, JSON, func
 
-from .constants import ForeignKeyName, SERVER_DEFAULT_FALSE, TableName
+from .constants import ForeignKeyName, TableName
 from ..infrastructure.db import Base
 
 class AuthUser(Base):

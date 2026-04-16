@@ -6,7 +6,7 @@ import pytest
 
 os.environ.setdefault("AUTH_DB", "sqlite+aiosqlite:///:memory:")
 os.environ.setdefault("JWT_SECRET", "test-secret-key-for-unit-tests")
-os.environ.setdefault("BCRYPT_ROUNDS", "4")  # fast rounds for tests
+os.environ.setdefault("BCRYPT_ROUNDS", "4")
 
 from tests.service_loader import load_service_app_module
 
@@ -57,7 +57,7 @@ class TestPasswordHasher:
         hasher = auth_pw_module.password_hasher
         h1 = hasher.hash("same_password")
         h2 = hasher.hash("same_password")
-        assert h1 != h2  # bcrypt salts differ
+        assert h1 != h2 
 
 @pytest.mark.unit
 class TestTokenService:
@@ -95,7 +95,7 @@ class TestTokenService:
         h1 = auth_token_module.hash_token("some-token-value")
         h2 = auth_token_module.hash_token("some-token-value")
         assert h1 == h2
-        assert len(h1) == 64  # SHA-256 hex digest
+        assert len(h1) == 64
 
     def test_hash_token_different_inputs(self, auth_token_module):
         h1 = auth_token_module.hash_token("token-a")

@@ -3,7 +3,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-
 @dataclass(frozen=True, slots=True)
 class ActionSeat:
 
@@ -14,7 +13,6 @@ class ActionSeat:
     is_active_in_hand: bool
     committed_this_street: int
 
-
 @dataclass(frozen=True, slots=True)
 class NextActorResult:
 
@@ -22,14 +20,11 @@ class NextActorResult:
     seat_number: int | None
     is_round_closed: bool
 
-
 def _can_act(p: ActionSeat) -> bool:
     return p.is_active_in_hand and not p.has_folded and not p.is_all_in
 
-
 def _needs_action(p: ActionSeat, highest_bet: int) -> bool:
     return _can_act(p) and p.committed_this_street < highest_bet
-
 
 def next_to_act(
     players: list[ActionSeat],

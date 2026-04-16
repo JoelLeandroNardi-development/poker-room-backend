@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from .constants import BetAction, RoundStatus
-from .exceptions import (
+from ..constants import BetAction, RoundStatus
+from ..exceptions import (
     ActionClosed,
     AmountExceedsStack,
     BetNotAllowed,
@@ -19,8 +19,7 @@ from .exceptions import (
     RaiseNotAllowed,
     RoundNotActive,
 )
-from .rules import RulesProfile, NO_LIMIT_HOLDEM
-
+from ..rules import RulesProfile, NO_LIMIT_HOLDEM
 
 @dataclass(frozen=True, slots=True)
 class PlayerState:
@@ -32,7 +31,6 @@ class PlayerState:
     has_folded: bool
     is_all_in: bool
     is_active_in_hand: bool
-
 
 @dataclass(frozen=True, slots=True)
 class HandContext:
@@ -51,12 +49,10 @@ class HandContext:
                 return p
         return None
 
-
 @dataclass(frozen=True, slots=True)
 class ValidatedAction:
     action: str
     amount: int
-
 
 def validate_bet(
     ctx: HandContext,

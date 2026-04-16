@@ -3,7 +3,7 @@ from ..domain.schemas import (
     GameResponse, RoundResponse, RoundPlayerResponse, PayoutResponse,
     LedgerEntryResponse, HandStateResponse, PlayerSnapshotResponse,
 )
-from ..domain.hand_ledger import HandState
+from ..domain.ledger.hand_ledger import HandState
 from shared.schemas.bets import BetResponse
 
 def bet_to_response(bet: Bet) -> BetResponse:

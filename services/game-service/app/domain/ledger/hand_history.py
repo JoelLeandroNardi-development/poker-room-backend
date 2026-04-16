@@ -5,7 +5,6 @@ from dataclasses import dataclass, field
 
 from .hand_ledger import LedgerRow
 
-
 _BLIND_TYPES = frozenset({"BLIND_POSTED", "ANTE_POSTED"})
 _BET_TYPES = frozenset({"BET_PLACED"})
 _STREET_TYPES = frozenset({"STREET_DEALT"})
@@ -14,7 +13,6 @@ _COMPLETION_TYPES = frozenset({"ROUND_COMPLETED"})
 _CORRECTION_TYPES = frozenset({
     "ACTION_REVERSED", "STACK_ADJUSTED", "HAND_REOPENED", "PAYOUT_CORRECTED",
 })
-
 
 @dataclass(frozen=True, slots=True)
 class ActionEntry:
@@ -25,7 +23,6 @@ class ActionEntry:
     amount: int
     pot_running_total: int
 
-
 @dataclass(slots=True)
 class StreetSummary:
 
@@ -34,14 +31,12 @@ class StreetSummary:
     pot_at_start: int = 0
     pot_at_end: int = 0
 
-
 @dataclass(frozen=True, slots=True)
 class PayoutEntry:
 
     entry_id: str
     player_id: str
     amount: int
-
 
 @dataclass(frozen=True, slots=True)
 class CorrectionEntry:
@@ -53,7 +48,6 @@ class CorrectionEntry:
     original_entry_id: str | None
     detail: dict | None
 
-
 @dataclass(slots=True)
 class HandTimeline:
 
@@ -64,7 +58,6 @@ class HandTimeline:
     is_completed: bool = False
     is_reopened: bool = False
     total_entries: int = 0
-
 
 def build_hand_timeline(
     round_id: str,

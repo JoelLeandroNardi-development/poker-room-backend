@@ -5,7 +5,6 @@ x-common-env: &common-env
   EXCHANGE_NAME: domain_events
 
 services:
-  # ───────────────────── infrastructure ─────────────────────
   postgres:
     image: postgres:15
     restart: unless-stopped
@@ -35,7 +34,6 @@ services:
       timeout: 3s
       retries: 10
 
-  # ───────────────────── services ─────────────────────
   room-service:
     build:
       context: .

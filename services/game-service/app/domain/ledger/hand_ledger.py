@@ -4,7 +4,6 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-
 @dataclass(frozen=True)
 class LedgerRow:
     entry_id: str
@@ -13,7 +12,6 @@ class LedgerRow:
     amount: int | None
     detail: dict[str, Any] | None
     original_entry_id: str | None
-
 
 @dataclass
 class PlayerSnapshot:
@@ -36,7 +34,6 @@ class HandState:
     def net_pot(self) -> int:
         return self.pot_total
 
-
 _BLIND_POSTED = "BLIND_POSTED"
 _ANTE_POSTED = "ANTE_POSTED"
 _BET_PLACED = "BET_PLACED"
@@ -47,12 +44,10 @@ _STACK_ADJUSTED = "STACK_ADJUSTED"
 _HAND_REOPENED = "HAND_REOPENED"
 _PAYOUT_CORRECTED = "PAYOUT_CORRECTED"
 
-
 def _ensure_player(state: HandState, player_id: str) -> PlayerSnapshot:
     if player_id not in state.players:
         state.players[player_id] = PlayerSnapshot(player_id=player_id)
     return state.players[player_id]
-
 
 def apply_entry(state: HandState, e: LedgerRow) -> None:
     state.entry_count += 1
@@ -117,7 +112,6 @@ def apply_entry(state: HandState, e: LedgerRow) -> None:
             "new_player_id": new_player,
             "new_amount": new_amount,
         })
-
 
 def rebuild_hand_state(entries: list[LedgerRow]) -> HandState:
     state = HandState()

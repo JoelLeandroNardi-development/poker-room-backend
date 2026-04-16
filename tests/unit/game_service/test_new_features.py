@@ -20,40 +20,33 @@ os.environ.setdefault("GAME_DB", "sqlite+aiosqlite:///:memory:")
 os.environ.setdefault("RABBIT_URL", "amqp://guest:guest@localhost:5672/")
 os.environ.setdefault("EXCHANGE_NAME", "test_exchange")
 
-
-# ── Module fixtures ──────────────────────────────────────────────────
-
 @pytest.fixture(scope="module")
 def ledger_mod():
     return load_service_app_module(
-        "game-service", "domain/hand_ledger",
+        "game-service", "domain/ledger/hand_ledger",
         package_name="new_features_app", reload_modules=True,
     )
-
 
 @pytest.fixture(scope="module")
 def replay_mod():
     return load_service_app_module(
-        "game-service", "domain/hand_replay",
+        "game-service", "domain/ledger/hand_replay",
         package_name="new_features_app",
     )
-
 
 @pytest.fixture(scope="module")
 def pipeline_mod():
     return load_service_app_module(
-        "game-service", "domain/action_pipeline",
+        "game-service", "domain/engine/action_pipeline",
         package_name="new_features_app",
     )
-
 
 @pytest.fixture(scope="module")
 def validator_mod():
     return load_service_app_module(
-        "game-service", "domain/validator",
+        "game-service", "domain/engine/validator",
         package_name="new_features_app",
     )
-
 
 @pytest.fixture(scope="module")
 def rules_mod():
@@ -62,14 +55,12 @@ def rules_mod():
         package_name="new_features_app",
     )
 
-
 @pytest.fixture(scope="module")
 def exceptions_mod():
     return load_service_app_module(
         "game-service", "domain/exceptions",
         package_name="new_features_app",
     )
-
 
 @pytest.fixture(scope="module")
 def scenario_mod():
@@ -78,7 +69,6 @@ def scenario_mod():
         package_name="new_features_app",
     )
 
-
 @pytest.fixture(scope="module")
 def models_mod():
     return load_service_app_module(
@@ -86,43 +76,32 @@ def models_mod():
         package_name="new_features_app",
     )
 
-
 @pytest.fixture(scope="module")
 def table_runtime_mod():
     return load_service_app_module(
-        "game-service", "domain/table_runtime",
+        "game-service", "domain/engine/table_runtime",
         package_name="new_features_app",
     )
-
-
-# ── Shortcut fixtures ───────────────────────────────────────────────
 
 @pytest.fixture
 def LedgerRow(ledger_mod):
     return ledger_mod.LedgerRow
 
-
 @pytest.fixture
 def apply_entry(ledger_mod):
     return ledger_mod.apply_entry
-
 
 @pytest.fixture
 def HandState(ledger_mod):
     return ledger_mod.HandState
 
-
 @pytest.fixture
 def Round(models_mod):
     return models_mod.Round
 
-
 @pytest.fixture
 def RoundPlayer(models_mod):
     return models_mod.RoundPlayer
-
-
-# ── Helpers ──────────────────────────────────────────────────────────
 
 def _row(LedgerRow, entry_id, entry_type, player_id=None, amount=None,
          detail=None, original_entry_id=None):
@@ -135,14 +114,7 @@ def _row(LedgerRow, entry_id, entry_type, player_id=None, amount=None,
         original_entry_id=original_entry_id,
     )
 
-
-# ═══════════════════════════════════════════════════════════════════════
-#  Incremental Replay (apply_entry)
-# ═══════════════════════════════════════════════════════════════════════
-
 class TestApplyEntry:
-    """Test the new incremental apply_entry function."""
-
     def test_apply_entry_blind(self, apply_entry, HandState, LedgerRow):
         state = HandState()
         row = _row(LedgerRow, "e1", "BLIND_POSTED", "p1", 50)
@@ -184,7 +156,6 @@ class TestApplyEntry:
         assert state.players["p1"].total_won == 50
 
     def test_incremental_matches_rebuild(self, ledger_mod, LedgerRow):
-        """Incremental apply_entry produces same result as rebuild_hand_state."""
         entries = [
             _row(LedgerRow, "e1", "BLIND_POSTED", "p1", 50),
             _row(LedgerRow, "e2", "BLIND_POSTED", "p2", 100),
@@ -192,9 +163,7 @@ class TestApplyEntry:
             _row(LedgerRow, "e4", "PAYOUT_AWARDED", "p2", 250),
             _row(LedgerRow, "e5", "ROUND_COMPLETED"),
         ]
-        # Rebuild via batch
         batch = ledger_mod.rebuild_hand_state(entries)
-        # Rebuild via incremental
         incremental = ledger_mod.HandState()
         for e in entries:
             ledger_mod.apply_entry(incremental, e)
@@ -206,10 +175,7 @@ class TestApplyEntry:
             assert incremental.players[pid].total_committed == batch.players[pid].total_committed
             assert incremental.players[pid].total_won == batch.players[pid].total_won
 
-
 class TestIncrementalReplay:
-    """Verify replay_hand uses incremental mode and is O(n)."""
-
     def test_replay_hand_identical_results(self, replay_mod, LedgerRow):
         entries = [
             _row(LedgerRow, "e1", "BLIND_POSTED", "p1", 50),
@@ -225,14 +191,7 @@ class TestIncrementalReplay:
         assert result.final_state.pot_total == 200
         assert result.final_state.is_completed is True
 
-
-# ═══════════════════════════════════════════════════════════════════════
-#  Optimistic Concurrency (state_version / StaleStateError)
-# ═══════════════════════════════════════════════════════════════════════
-
 class TestOptimisticConcurrency:
-    """State version guards in apply_action."""
-
     def _make_round(self, Round, **overrides):
         defaults = dict(
             round_id="r1", game_id="g1", round_number=1,
@@ -296,11 +255,6 @@ class TestOptimisticConcurrency:
         assert result.action == "FOLD"
         assert game_round.state_version == 100
 
-
-# ═══════════════════════════════════════════════════════════════════════
-#  New Exceptions
-# ═══════════════════════════════════════════════════════════════════════
-
 class TestNewExceptions:
     def test_stale_state_error(self, exceptions_mod):
         err = exceptions_mod.StaleStateError("version mismatch")
@@ -312,14 +266,7 @@ class TestNewExceptions:
         assert isinstance(err, exceptions_mod.DomainError)
         assert "already applied" in err.message
 
-
-# ═══════════════════════════════════════════════════════════════════════
-#  RulesProfile Wiring
-# ═══════════════════════════════════════════════════════════════════════
-
 class TestRulesProfileWiring:
-    """Verify RulesProfile can be passed through the engine stack."""
-
     def test_validate_bet_accepts_rules(self, validator_mod, rules_mod):
         ctx = validator_mod.HandContext(
             round_id="r1", status="ACTIVE", street="PRE_FLOP",
@@ -383,14 +330,7 @@ class TestRulesProfileWiring:
         )
         assert result.action == "FOLD"
 
-
-# ═══════════════════════════════════════════════════════════════════════
-#  Scenario Runner (Real Blind Posting)
-# ═══════════════════════════════════════════════════════════════════════
-
 class TestScenarioRunnerBlinds:
-    """Verify scenario runner uses real post_blinds_and_antes()."""
-
     def test_scenario_posts_correct_blinds(self, scenario_mod, pipeline_mod, Round, RoundPlayer):
         HandScenario = scenario_mod.HandScenario
         PlayerSetup = scenario_mod.PlayerSetup
@@ -406,12 +346,10 @@ class TestScenarioRunnerBlinds:
             blinds=BlindSetup(small=50, big=100),
             dealer_seat=1,
         )
-        # Don't add any actions — just check the post-blind state
         result = scenario_mod.run_scenario(
             scenario, pipeline_mod.apply_action, Round, RoundPlayer,
         )
         assert result.scenario_name == "blind posting check"
-        # Scenario runner doesn't fail with 0 actions
         assert result.actions_applied == 0
 
     def test_scenario_blinds_and_action(self, scenario_mod, pipeline_mod, Round, RoundPlayer):
@@ -429,7 +367,6 @@ class TestScenarioRunnerBlinds:
             blinds=BlindSetup(small=50, big=100),
             dealer_seat=1,
         )
-        # p1 is dealer, p2=SB, p3=BB. First to act = p1
         scenario.add_action("p1", "FOLD", 0)
         scenario.expect_player_folded("p1")
 
@@ -454,7 +391,6 @@ class TestScenarioRunnerBlinds:
             blinds=BlindSetup(small=50, big=100, ante=10),
             dealer_seat=1,
         )
-        # p2=SB, p3=BB, p1=dealer. Pot = SB(50) + BB(100) + antes(3*10=30) = 180
         scenario.expect_pot(180)
 
         result = scenario_mod.run_scenario(
@@ -462,14 +398,7 @@ class TestScenarioRunnerBlinds:
         )
         assert result.passed
 
-
-# ═══════════════════════════════════════════════════════════════════════
-#  Table Runtime
-# ═══════════════════════════════════════════════════════════════════════
-
 class TestTableRuntime:
-    """Tests for the table runtime session layer."""
-
     def _make_runtime(self, table_runtime_mod, num_seats=6, num_players=3):
         rt = table_runtime_mod.TableRuntime(game_id="g1")
         for i in range(1, num_seats + 1):
@@ -523,7 +452,7 @@ class TestTableRuntime:
 
     def test_can_start_hand(self, table_runtime_mod):
         rt = self._make_runtime(table_runtime_mod)
-        assert rt.can_start_hand() is False  # WAITING status
+        assert rt.can_start_hand() is False
         rt.start_session()
         assert rt.can_start_hand() is True
 
@@ -552,14 +481,7 @@ class TestTableRuntime:
         rt = self._make_runtime(table_runtime_mod, num_seats=6, num_players=3)
         assert rt.seated_count == 3
 
-
-# ═══════════════════════════════════════════════════════════════════════
-#  Blind Clock
-# ═══════════════════════════════════════════════════════════════════════
-
 class TestBlindClock:
-    """Tests for the blind clock component."""
-
     def test_should_advance_by_hands(self, table_runtime_mod):
         clock = table_runtime_mod.BlindClock()
         assert clock.should_advance(hands_per_level=5) is False
@@ -583,14 +505,7 @@ class TestBlindClock:
         assert clock.should_advance(seconds_per_level=300) is True
         assert clock.should_advance(seconds_per_level=900) is False
 
-
-# ═══════════════════════════════════════════════════════════════════════
-#  Idempotency Key on Model
-# ═══════════════════════════════════════════════════════════════════════
-
 class TestIdempotencyKey:
-    """Verify idempotency_key column exists on Bet model."""
-
     def test_bet_has_idempotency_key(self, models_mod):
         bet = models_mod.Bet(
             bet_id="b1", round_id="r1", player_id="p1",

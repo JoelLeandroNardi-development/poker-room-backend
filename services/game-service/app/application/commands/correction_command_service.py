@@ -1,8 +1,6 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
-
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..action_helpers import append_ledger_entry
@@ -11,11 +9,8 @@ from ...domain.constants import (
     LedgerEntryType, RoundStatus,
 )
 from ...domain.events import build_event
-from ...domain.exceptions import (
-    CannotReverseCorrection, EntryAlreadyReversed, LedgerEntryNotFound,
-    RoundAlreadyActive, RoundNotCompleted,
-)
-from ...domain.hand_ledger import LedgerRow, rebuild_hand_state, HandState
+from ...domain.exceptions import CannotReverseCorrection, EntryAlreadyReversed, LedgerEntryNotFound, RoundNotCompleted
+from ...domain.ledger.hand_ledger import LedgerRow, rebuild_hand_state, HandState
 from ...domain.models import HandLedgerEntry, OutboxEvent, Round, RoundPlayer
 from ...infrastructure.repository import (
     get_ledger_entries, get_ledger_entry_by_id, get_round_players, fetch_or_raise,
@@ -23,11 +18,9 @@ from ...infrastructure.repository import (
 from shared.core.db.session import atomic
 from shared.core.outbox.helpers import add_outbox_event
 
-
 class CorrectionCommandService:
     def __init__(self, db: AsyncSession):
         self.db = db
-
 
     async def get_hand_state(self, round_id: str) -> HandState:
         rows = await get_ledger_entries(self.db, round_id)
@@ -46,7 +39,6 @@ class CorrectionCommandService:
 
     async def get_ledger(self, round_id: str) -> list[HandLedgerEntry]:
         return await get_ledger_entries(self.db, round_id)
-
 
     async def reverse_action(
         self, round_id: str, original_entry_id: str, *, dealer_id: str | None = None, reason: str | None = None,
@@ -193,7 +185,6 @@ class CorrectionCommandService:
 
         await self.db.commit()
         return entry
-
 
     def _emit_correction_event(self, game_round: Round, entry: HandLedgerEntry) -> None:
         event = build_event(

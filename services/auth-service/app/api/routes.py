@@ -5,13 +5,8 @@ from ..application.commands.auth_command_service import AuthCommandService
 from ..application.commands.auth_user_command_service import AuthUserCommandService
 from ..application.queries.auth_user_query_service import AuthUserQueryService
 from ..domain.schemas import (
-    Register,
-    Login,
-    TokenPairResponse,
-    RefreshRequest,
-    LogoutRequest,
-    AuthUserResponse,
-    UpdateAuthUser,
+    Register, Login, TokenPairResponse, RefreshRequest,    
+    LogoutRequest, AuthUserResponse, UpdateAuthUser,
 )
 from ..infrastructure.db import SessionLocal
 from shared.core.db.session import make_get_db

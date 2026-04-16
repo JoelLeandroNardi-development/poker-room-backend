@@ -19,10 +19,7 @@ os.environ.setdefault("EXCHANGE_NAME", "test_exchange")
 
 from tests.service_loader import load_service_app_module
 
-# ── Module fixtures ──────────────────────────────────────────────────
-
 PACKAGE = "integration_game_app"
-
 
 @pytest.fixture(scope="module")
 def models_mod():
@@ -30,13 +27,11 @@ def models_mod():
         "game-service", "domain/models", package_name=PACKAGE, reload_modules=True,
     )
 
-
 @pytest.fixture(scope="module")
 def pipeline_mod():
     return load_service_app_module(
-        "game-service", "domain/action_pipeline", package_name=PACKAGE,
+        "game-service", "domain/engine/action_pipeline", package_name=PACKAGE,
     )
-
 
 @pytest.fixture(scope="module")
 def exceptions_mod():
@@ -44,13 +39,11 @@ def exceptions_mod():
         "game-service", "domain/exceptions", package_name=PACKAGE,
     )
 
-
 @pytest.fixture(scope="module")
 def repo_mod():
     return load_service_app_module(
         "game-service", "infrastructure/repository", package_name=PACKAGE,
     )
-
 
 @pytest.fixture(scope="module")
 def constants_mod():
@@ -58,13 +51,11 @@ def constants_mod():
         "game-service", "domain/constants", package_name=PACKAGE,
     )
 
-
 @pytest.fixture(scope="module")
 def table_runtime_mod():
     return load_service_app_module(
-        "game-service", "domain/table_runtime", package_name=PACKAGE,
+        "game-service", "domain/engine/table_runtime", package_name=PACKAGE,
     )
-
 
 @pytest.fixture(scope="module")
 def db_module(models_mod):
@@ -72,12 +63,8 @@ def db_module(models_mod):
         "game-service", "infrastructure/db", package_name=PACKAGE,
     )
 
-
-# ── DB session fixture ──────────────────────────────────────────────
-
 @pytest.fixture
 async def engine_and_tables(db_module):
-    """Create all tables on a fresh in-memory SQLite engine."""
     from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
 
     engine = create_async_engine("sqlite+aiosqlite:///:memory:", echo=False)
@@ -86,7 +73,6 @@ async def engine_and_tables(db_module):
     yield engine
     await engine.dispose()
 
-
 @pytest.fixture
 async def session(engine_and_tables):
     from sqlalchemy.ext.asyncio import async_sessionmaker
@@ -94,9 +80,6 @@ async def session(engine_and_tables):
     Session = async_sessionmaker(engine_and_tables, expire_on_commit=False)
     async with Session() as s:
         yield s
-
-
-# ── Helpers ──────────────────────────────────────────────────────────
 
 def _make_game(models_mod, game_id=None, **overrides):
     defaults = dict(
@@ -112,7 +95,6 @@ def _make_game(models_mod, game_id=None, **overrides):
     )
     defaults.update(overrides)
     return models_mod.Game(**defaults)
-
 
 def _make_round(models_mod, round_id=None, game_id="g1", **overrides):
     defaults = dict(
@@ -137,7 +119,6 @@ def _make_round(models_mod, round_id=None, game_id="g1", **overrides):
     defaults.update(overrides)
     return models_mod.Round(**defaults)
 
-
 def _make_players(models_mod, round_id):
     return [
         models_mod.RoundPlayer(
@@ -160,14 +141,7 @@ def _make_players(models_mod, round_id):
         ),
     ]
 
-
-# ═══════════════════════════════════════════════════════════════════════
-#  1. DB-Level Optimistic Concurrency (CAS)
-# ═══════════════════════════════════════════════════════════════════════
-
 class TestCASConcurrency:
-    """Verify that cas_update_round enforces compare-and-swap at DB level."""
-
     @pytest.mark.asyncio
     async def test_cas_succeeds_when_version_matches(
         self, session, models_mod, repo_mod,
@@ -177,7 +151,6 @@ class TestCASConcurrency:
         session.add(game_round)
         await session.commit()
 
-        # Reload
         fetched = await repo_mod.fetch_or_raise(
             session, models_mod.Round,
             filter_column=models_mod.Round.round_id,
@@ -191,7 +164,6 @@ class TestCASConcurrency:
         await repo_mod.cas_update_round(session, fetched, version_before)
         await session.commit()
 
-        # Verify
         updated = await repo_mod.fetch_or_raise(
             session, models_mod.Round,
             filter_column=models_mod.Round.round_id,
@@ -216,19 +188,16 @@ class TestCASConcurrency:
             filter_value=rid,
             detail="not found",
         )
-        # Pretend someone else already advanced to version 6
         fetched.pot_amount = 999
         fetched.state_version = 6
 
         with pytest.raises(exceptions_mod.StaleStateError):
-            # Pass wrong expected version (3 != actual 5)
             await repo_mod.cas_update_round(session, fetched, expected_version=3)
 
     @pytest.mark.asyncio
     async def test_concurrent_writers_one_wins(
         self, engine_and_tables, models_mod, repo_mod, exceptions_mod,
     ):
-        """Two concurrent sessions try to CAS the same round — one must fail."""
         from sqlalchemy.ext.asyncio import async_sessionmaker
 
         Session = async_sessionmaker(engine_and_tables, expire_on_commit=False)
@@ -266,21 +235,11 @@ class TestCASConcurrency:
         assert results["success"] >= 1
         assert results["success"] + results["stale"] == 2
 
-
-# ═══════════════════════════════════════════════════════════════════════
-#  2. Scoped Idempotency + Payload Mismatch
-# ═══════════════════════════════════════════════════════════════════════
-
 class TestScopedIdempotency:
-    """Verify that idempotency is scoped to (round_id, key) and rejects
-    mismatched payload reuse.
-    """
-
     @pytest.mark.asyncio
     async def test_same_key_same_round_returns_existing(
         self, session, models_mod,
     ):
-        """Inserting the same key+round twice should violate the unique constraint."""
         from sqlalchemy import select
 
         rid = str(uuid.uuid4())
@@ -295,7 +254,6 @@ class TestScopedIdempotency:
         session.add(bet1)
         await session.flush()
 
-        # Same key + same round → IntegrityError at DB level
         bet2 = models_mod.Bet(
             bet_id=str(uuid.uuid4()), round_id=rid, player_id="p1",
             action="CALL", amount=100, idempotency_key="key-1",
@@ -310,7 +268,6 @@ class TestScopedIdempotency:
     async def test_same_key_different_round_succeeds(
         self, session, models_mod,
     ):
-        """Same idempotency key in a different round should be allowed."""
         rid1 = str(uuid.uuid4())
         rid2 = str(uuid.uuid4())
         r1 = _make_round(models_mod, round_id=rid1, round_number=1)
@@ -331,27 +288,18 @@ class TestScopedIdempotency:
         session.add(bet2)
         await session.flush()
 
-        # Both persisted successfully
         assert bet1.idempotency_key == bet2.idempotency_key
         assert bet1.round_id != bet2.round_id
 
     @pytest.mark.asyncio
     async def test_bet_model_has_round_scoped_constraint(self, models_mod):
-        """Verify model table_args contains the round-scoped unique constraint."""
         constraints = [
             c.name for c in models_mod.Bet.__table__.constraints
             if hasattr(c, "name") and c.name
         ]
         assert "uq_bets_round_idempotency" in constraints
 
-
-# ═══════════════════════════════════════════════════════════════════════
-#  3. Table Runtime Integration
-# ═══════════════════════════════════════════════════════════════════════
-
 class TestTableRuntimeIntegration:
-    """Verify table runtime state machine works with session lifecycle."""
-
     def test_full_session_lifecycle(self, table_runtime_mod):
         TR = table_runtime_mod.TableRuntime
         TS = table_runtime_mod.TableSeat
@@ -365,31 +313,25 @@ class TestTableRuntimeIntegration:
         ]
         runtime = TR(game_id="g1", seats=seats)
 
-        # Start session
         runtime.start_session()
         assert runtime.status == TableStatus.RUNNING
         assert runtime.can_start_hand()
 
-        # Play a hand
         assert runtime.next_hand_number() == 1
         runtime.record_hand_completed()
         assert runtime.hands_played == 1
         assert runtime.blind_clock.hands_at_level == 1
 
-        # Sit out a player
         runtime.sit_out(3)
         assert seats[2].status == SeatStatus.SITTING_OUT
-        assert runtime.can_start_hand()  # still 2 active
+        assert runtime.can_start_hand()
 
-        # Record another hand — sat-out counter advances
         runtime.record_hand_completed()
         assert seats[2].hands_sat_out == 1
 
-        # Sit back in
         runtime.sit_in(3)
         assert seats[2].status == SeatStatus.ACTIVE
 
-        # Pause / resume
         runtime.pause_session()
         assert runtime.status == TableStatus.PAUSED
         assert not runtime.can_start_hand()
@@ -397,7 +339,6 @@ class TestTableRuntimeIntegration:
         runtime.resume_session()
         assert runtime.status == TableStatus.RUNNING
 
-        # Finish
         runtime.finish_session()
         assert runtime.status == TableStatus.FINISHED
 
@@ -405,7 +346,6 @@ class TestTableRuntimeIntegration:
         clock = table_runtime_mod.BlindClock()
         assert clock.current_level == 1
 
-        # Record 10 hands
         for _ in range(10):
             clock.record_hand()
 
@@ -414,17 +354,9 @@ class TestTableRuntimeIntegration:
         assert new_level == 2
         assert clock.hands_at_level == 0
 
-
-# ═══════════════════════════════════════════════════════════════════════
-#  3b. Table Runtime Persistence (DB-backed)
-# ═══════════════════════════════════════════════════════════════════════
-
 class TestTableRuntimePersistence:
-    """Verify that runtime counters persist through the Game model."""
-
     @pytest.mark.asyncio
     async def test_game_has_runtime_fields(self, models_mod):
-        """Game model has hands_played and hands_at_current_level columns."""
         col_names = {c.name for c in models_mod.Game.__table__.columns}
         assert "hands_played" in col_names
         assert "hands_at_current_level" in col_names
@@ -433,7 +365,6 @@ class TestTableRuntimePersistence:
     async def test_runtime_counters_persist_across_reload(
         self, session, models_mod,
     ):
-        """Write runtime counters, commit, reload — values survive."""
         gid = str(uuid.uuid4())
         game = _make_game(models_mod, game_id=gid, hands_played=0)
         session.add(game)
@@ -459,7 +390,6 @@ class TestTableRuntimePersistence:
     async def test_build_runtime_restores_counters(
         self, session, models_mod, table_runtime_mod,
     ):
-        """_build_runtime_from_game correctly hydrates hands_played and hands_at_level."""
         from tests.service_loader import load_service_app_module
         cmd_mod = load_service_app_module(
             "game-service",
@@ -485,14 +415,7 @@ class TestTableRuntimePersistence:
         assert runtime.blind_clock.current_level == 3
         assert runtime.blind_clock.hands_at_level == 5
 
-
-# ═══════════════════════════════════════════════════════════════════════
-#  3c. Session Status Response
-# ═══════════════════════════════════════════════════════════════════════
-
 class TestSessionStatusResponse:
-    """Verify the SessionStatusResponse schema has all required fields."""
-
     def test_session_status_fields_present(self):
         from shared.schemas.games import SessionStatusResponse
 
@@ -542,14 +465,7 @@ class TestSessionStatusResponse:
         assert resp.hands_played == 10
         assert resp.hands_at_current_level == 4
 
-
-# ═══════════════════════════════════════════════════════════════════════
-#  4. Expanded TableStateResponse
-# ═══════════════════════════════════════════════════════════════════════
-
 class TestTableStateResponseContract:
-    """Verify the expanded TableStateResponse has all required fields."""
-
     def test_all_fields_present(self):
         from shared.schemas.games import TableStateResponse
 
@@ -592,14 +508,7 @@ class TestTableStateResponseContract:
         assert resp.is_showdown_ready is False
         assert resp.round_number == 1
 
-
-# ═══════════════════════════════════════════════════════════════════════
-#  5. Observability
-# ═══════════════════════════════════════════════════════════════════════
-
 class TestObservability:
-    """Verify structured logging and correlation ID infrastructure."""
-
     @pytest.fixture(scope="class")
     def logging_mod(self):
         return load_service_app_module(
@@ -631,14 +540,7 @@ class TestObservability:
         assert exc.message == "test"
         assert isinstance(exc, exceptions_mod.DomainError)
 
-
-# ═══════════════════════════════════════════════════════════════════════
-#  6. Replay / Timeline / Consistency on Settled Hand
-# ═══════════════════════════════════════════════════════════════════════
-
 class TestReplayOnSettledHand:
-    """End-to-end: replay and consistency check against a fully built hand."""
-
     @pytest.fixture
     def ledger_mod(self):
         return load_service_app_module(
@@ -677,10 +579,8 @@ class TestReplayOnSettledHand:
             LR(entry_id="e1", entry_type="BLIND_POSTED", player_id="p1", amount=50, detail=None, original_entry_id=None),
             LR(entry_id="e2", entry_type="BLIND_POSTED", player_id="p2", amount=100, detail=None, original_entry_id=None),
             LR(entry_id="e3", entry_type="BET_PLACED", player_id="p3", amount=100, detail=None, original_entry_id=None),
-            # Correction: reverse p3's bet
             LR(entry_id="e4", entry_type="ACTION_REVERSED", player_id="p3",
                amount=100, detail=None, original_entry_id="e3"),
-            # Re-bet at correct amount
             LR(entry_id="e5", entry_type="BET_PLACED", player_id="p3", amount=150, detail=None, original_entry_id=None),
             LR(entry_id="e6", entry_type="PAYOUT_AWARDED", player_id="p3", amount=350, detail=None, original_entry_id=None),
             LR(entry_id="e7", entry_type="ROUND_COMPLETED", player_id=None, amount=None, detail=None, original_entry_id=None),
@@ -688,7 +588,6 @@ class TestReplayOnSettledHand:
         result = replay_mod.replay_hand(entries)
         assert result.is_consistent
 
-        # Verify via consistency checker
         state = ledger_mod.rebuild_hand_state(entries)
         live_committed = {
             "p1": 50,

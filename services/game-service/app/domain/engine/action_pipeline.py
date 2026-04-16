@@ -3,13 +3,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from .constants import BetAction
-from .exceptions import StaleStateError
-from .models import Round, RoundPlayer
-from .rules import RulesProfile, NO_LIMIT_HOLDEM
 from .turn_engine import ActionSeat, next_to_act
 from .validator import HandContext, PlayerState, ValidatedAction, validate_bet
-
+from ..constants import BetAction
+from ..exceptions import StaleStateError
+from ..models import Round, RoundPlayer
+from ..rules import RulesProfile, NO_LIMIT_HOLDEM
 
 @dataclass(frozen=True, slots=True)
 class PlayerMutation:
@@ -20,7 +19,6 @@ class PlayerMutation:
     should_fold: bool
     should_all_in: bool
 
-
 @dataclass(frozen=True, slots=True)
 class RoundMutation:
     pot_delta: int
@@ -29,7 +27,6 @@ class RoundMutation:
     new_acting_player_id: str | None
     new_last_aggressor_seat: int | None
     is_action_closed: bool
-
 
 @dataclass(frozen=True, slots=True)
 class HandTransition:
@@ -40,14 +37,12 @@ class HandTransition:
     player_mutation: PlayerMutation
     round_mutation: RoundMutation
 
-
 @dataclass(frozen=True, slots=True)
 class ApplyActionResult:
     action: str
     amount: int
     is_round_closed: bool
     next_player_id: str | None
-
 
 def transition_hand_state(
     ctx: HandContext,
@@ -147,7 +142,6 @@ def transition_hand_state(
         round_mutation=round_mutation,
     )
 
-
 def _build_hand_context(game_round: Round, round_players: list[RoundPlayer]) -> HandContext:
     players = [
         PlayerState(
@@ -172,7 +166,6 @@ def _build_hand_context(game_round: Round, round_players: list[RoundPlayer]) -> 
         is_action_closed=game_round.is_action_closed,
         players=players,
     )
-
 
 def _apply_transition(
     game_round: Round,
@@ -210,7 +203,6 @@ def _apply_transition(
         game_round.is_action_closed = False
 
     game_round.state_version = (game_round.state_version or 1) + 1
-
 
 def apply_action(
     game_round: Round,

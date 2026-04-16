@@ -10,7 +10,6 @@ from .logging import get_logger
 
 logger = get_logger("game-service.repository")
 
-
 async def fetch_or_raise(db: AsyncSession, model, *, filter_column, filter_value, detail: str = "Not found"):
     res = await db.execute(select(model).where(filter_column == filter_value))
     obj = res.scalar_one_or_none()
@@ -85,7 +84,6 @@ async def get_ledger_entry_by_id(db: AsyncSession, entry_id: str) -> HandLedgerE
     )
     return res.scalar_one_or_none()
 
-
 async def get_bets_for_round(db: AsyncSession, round_id: str) -> list[Bet]:
     res = await db.execute(
         select(Bet)
@@ -100,7 +98,6 @@ async def get_pot_total(db: AsyncSession, round_id: str) -> int:
         .where(Bet.round_id == round_id)
     )
     return res.scalar_one()
-
 
 async def cas_update_round(
     db: AsyncSession,

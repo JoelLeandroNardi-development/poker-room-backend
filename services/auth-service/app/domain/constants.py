@@ -45,5 +45,3 @@ class ResponseKey(StrEnum):
     EXPIRES_IN = "expires_in"
     OK = "ok"
     EMAIL = "email"
-
-SERVER_DEFAULT_FALSE = "false"

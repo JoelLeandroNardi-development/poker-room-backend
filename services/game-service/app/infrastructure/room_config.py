@@ -9,10 +9,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..domain.exceptions import NotFound
 from ..domain.models import RoomSnapshot, RoomSnapshotBlindLevel, RoomSnapshotPlayer
-from ..domain.room_adapter import BlindLevelConfig, PlayerConfig, RoomConfig, RoomConfigProvider
+from ..domain.integration.room_adapter import BlindLevelConfig, PlayerConfig, RoomConfig
 
 ROOM_SERVICE_URL = os.getenv("ROOM_SERVICE_URL", "http://room-service:8000")
-
 
 async def fetch_room_config_http(room_id: str) -> RoomConfig:
     async with httpx.AsyncClient(timeout=10.0) as client:
@@ -47,7 +46,6 @@ async def fetch_room_config_http(room_id: str) -> RoomConfig:
         ],
     )
 
-
 async def save_room_snapshot(db: AsyncSession, game_id: str, config: RoomConfig) -> None:
     db.add(RoomSnapshot(
         game_id=game_id,
@@ -72,7 +70,6 @@ async def save_room_snapshot(db: AsyncSession, game_id: str, config: RoomConfig)
             ante=bl.ante,
             duration_minutes=bl.duration_minutes,
         ))
-
 
 async def load_room_snapshot(db: AsyncSession, game_id: str) -> RoomConfig:
     res = await db.execute(
@@ -121,9 +118,7 @@ async def load_room_snapshot(db: AsyncSession, game_id: str) -> RoomConfig:
         blind_levels=blind_levels,
     )
 
-
 class HttpRoomConfigProvider:
-
     def __init__(self, db: AsyncSession) -> None:
         self._db = db
 
