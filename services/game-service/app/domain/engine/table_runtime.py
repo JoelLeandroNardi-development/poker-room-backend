@@ -1,9 +1,17 @@
-
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
+
+from ..constants import ErrorMessage
+from ..exceptions import (
+    NotEnoughActivePlayers,
+    SeatNotActive,
+    SeatNotFound,
+    SeatNotSittingOut,
+    SessionNotPaused,
+)
 
 class SeatStatus(str, Enum):
     ACTIVE = "ACTIVE"
@@ -18,7 +26,6 @@ class TableStatus(str, Enum):
 
 @dataclass
 class TableSeat:
-
     seat_number: int
     player_id: str | None = None
     status: str = SeatStatus.EMPTY
@@ -57,7 +64,6 @@ class BlindClock:
 
 @dataclass
 class TableRuntime:
-
     game_id: str
     status: str = TableStatus.WAITING
     seats: list[TableSeat] = field(default_factory=list)
@@ -78,7 +84,7 @@ class TableRuntime:
 
     def start_session(self) -> None:
         if len(self.active_seats) < 2:
-            raise ValueError("Need at least 2 active players")
+            raise NotEnoughActivePlayers(ErrorMessage.NOT_ENOUGH_ACTIVE_PLAYERS)
         self.status = TableStatus.RUNNING
 
     def pause_session(self) -> None:
@@ -86,7 +92,7 @@ class TableRuntime:
 
     def resume_session(self) -> None:
         if self.status != TableStatus.PAUSED:
-            raise ValueError("Can only resume a paused session")
+            raise SessionNotPaused(ErrorMessage.SESSION_NOT_PAUSED)
         self.status = TableStatus.RUNNING
 
     def finish_session(self) -> None:
@@ -95,14 +101,16 @@ class TableRuntime:
     def sit_out(self, seat_number: int) -> None:
         seat = self._get_seat(seat_number)
         if seat.status != SeatStatus.ACTIVE:
-            raise ValueError(f"Seat {seat_number} is not active")
+            raise SeatNotActive(ErrorMessage.SEAT_NOT_ACTIVE.format(seat_number=seat_number))
         seat.status = SeatStatus.SITTING_OUT
         seat.hands_sat_out = 0
 
     def sit_in(self, seat_number: int) -> None:
         seat = self._get_seat(seat_number)
         if seat.status != SeatStatus.SITTING_OUT:
-            raise ValueError(f"Seat {seat_number} is not sitting out")
+            raise SeatNotSittingOut(
+                ErrorMessage.SEAT_NOT_SITTING_OUT.format(seat_number=seat_number)
+            )
         seat.status = SeatStatus.ACTIVE
         seat.hands_sat_out = 0
 
@@ -120,4 +128,4 @@ class TableRuntime:
         for s in self.seats:
             if s.seat_number == seat_number:
                 return s
-        raise ValueError(f"Seat {seat_number} not found")
+        raise SeatNotFound(ErrorMessage.SEAT_NOT_FOUND.format(seat_number=seat_number))

@@ -2,7 +2,7 @@
 frontend contract, and cross-layer flows.
 
 These tests use an async SQLite database so they exercise the real ORM
-models, repository helpers, and CAS logic — not just in-memory objects.
+models, repository helpers, and CAS logic - not just in-memory objects.
 """
 
 from __future__ import annotations
@@ -618,3 +618,4 @@ class TestReplayOnSettledHand:
         timeline = history_mod.build_hand_timeline("r1", entries)
         assert len(timeline.streets) >= 1
         assert len(timeline.payouts) == 1
+

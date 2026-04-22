@@ -438,7 +438,7 @@ class TestTableRuntime:
             seat_number=1, player_id="p1",
             status=table_runtime_mod.SeatStatus.ACTIVE, chip_count=1000,
         ))
-        with pytest.raises(ValueError, match="at least 2"):
+        with pytest.raises(table_runtime_mod.NotEnoughActivePlayers, match="at least 2"):
             rt.start_session()
 
     def test_pause_resume(self, table_runtime_mod):
@@ -452,7 +452,7 @@ class TestTableRuntime:
     def test_resume_non_paused_raises(self, table_runtime_mod):
         rt = self._make_runtime(table_runtime_mod)
         rt.start_session()
-        with pytest.raises(ValueError, match="paused"):
+        with pytest.raises(table_runtime_mod.SessionNotPaused, match="paused"):
             rt.resume_session()
 
     def test_sit_out_sit_in(self, table_runtime_mod):

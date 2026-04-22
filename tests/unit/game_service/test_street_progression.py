@@ -6,7 +6,7 @@ Tests cover:
 - find_first_to_act() seat selection
 - evaluate_street_end() for all outcome types
 - Heads-up (2-player) specific scenarios
-- Multi-player (3–6 player) scenarios
+- Multi-player (3-6 player) scenarios
 - Edge cases: all-in cascades, fold-to-win, showdown from river
 """
 

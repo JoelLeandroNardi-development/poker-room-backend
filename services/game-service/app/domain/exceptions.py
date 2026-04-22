@@ -92,3 +92,21 @@ class DuplicateActionError(DomainError):
 
 class IdempotencyConflict(DomainError):
     pass
+
+class TableRuntimeError(DomainError):
+    pass
+
+class NotEnoughActivePlayers(TableRuntimeError):
+    pass
+
+class SessionNotPaused(TableRuntimeError):
+    pass
+
+class SeatNotActive(TableRuntimeError):
+    pass
+
+class SeatNotSittingOut(TableRuntimeError):
+    pass
+
+class SeatNotFound(TableRuntimeError):
+    pass

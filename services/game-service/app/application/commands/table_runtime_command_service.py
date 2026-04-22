@@ -65,7 +65,7 @@ class TableRuntimeCommandService:
     async def pause_table(self, game_id: str) -> dict:
         game, runtime, _room_config = await self._load_runtime(game_id)
         if game.status != GameStatus.ACTIVE:
-            raise GameNotActive("Game is not in ACTIVE status")
+            raise GameNotActive(ErrorMessage.GAME_NOT_ACTIVE)
 
         runtime.pause_session()
 
@@ -85,7 +85,7 @@ class TableRuntimeCommandService:
     async def resume_table(self, game_id: str) -> dict:
         game, runtime, _room_config = await self._load_runtime(game_id)
         if game.status != GameStatus.PAUSED:
-            raise GameNotActive("Game is not paused")
+            raise GameNotActive(ErrorMessage.GAME_NOT_PAUSED)
 
         runtime.resume_session()
 

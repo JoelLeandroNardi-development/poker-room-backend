@@ -44,17 +44,17 @@ class GameCommandService:
     async def start_game(self, data: StartGame) -> GameResponse:
         existing = await get_active_game_for_room(self.db, data.room_id)
         if existing:
-            raise GameAlreadyExists("An active game already exists for this room")
+            raise GameAlreadyExists(ErrorMessage.GAME_ALREADY_EXISTS)
 
         room_config = await fetch_room_config_http(data.room_id)
 
         if not room_config.blind_levels:
-            raise NotFound("No blind levels configured for this room")
+            raise NotFound(ErrorMessage.NO_BLIND_LEVELS)
 
         active_seats = room_config.active_seats
 
         if len(active_seats) < 2:
-            raise GameNotActive("At least 2 active players are required")
+            raise GameNotActive(ErrorMessage.ACTIVE_PLAYERS_REQUIRED)
 
         dealer_seat, sb_seat, bb_seat = self._assign_positions(
             active_seats, room_config.starting_dealer_seat,
@@ -105,11 +105,11 @@ class GameCommandService:
         )
 
         if game.status != GameStatus.ACTIVE:
-            raise GameNotActive("Game is not in ACTIVE status")
+            raise GameNotActive(ErrorMessage.GAME_NOT_ACTIVE)
 
         existing_active = await get_active_round(self.db, game_id)
         if existing_active:
-            raise GameNotActive("A round is already active")
+            raise GameNotActive(ErrorMessage.ROUND_ALREADY_ACTIVE)
 
         round_count = await count_rounds(self.db, game_id)
         round_number = round_count + 1
@@ -120,7 +120,7 @@ class GameCommandService:
             current_level = room_config.blind_levels[0]
 
         if not current_level:
-            raise NotFound("No blind levels configured for this room")
+            raise NotFound(ErrorMessage.NO_BLIND_LEVELS)
 
         round_id = str(uuid.uuid4())
 
@@ -256,16 +256,16 @@ class GameCommandService:
         )
 
         if game_round.status != RoundStatus.ACTIVE:
-            raise RoundNotActive("Round is not in ACTIVE status")
+            raise RoundNotActive(ErrorMessage.ROUND_NOT_ACTIVE)
 
         if not data.payouts:
-            raise PayoutEmpty("At least one pot payout is required")
+            raise PayoutEmpty(ErrorMessage.PAYOUT_EMPTY)
 
         total_paid = sum(
             w.amount for pot in data.payouts for w in pot.winners
         )
         if total_paid > game_round.pot_amount:
-            raise PayoutExceedsPot("Total payouts exceed pot amount")
+            raise PayoutExceedsPot(ErrorMessage.PAYOUT_TOTAL_EXCEEDS_POT)
 
         for pot in data.payouts:
             pot_winner_total = sum(w.amount for w in pot.winners)
@@ -400,10 +400,10 @@ class GameCommandService:
         )
 
         if game_round.status != RoundStatus.ACTIVE:
-            raise RoundNotActive("Round is not in ACTIVE status")
+            raise RoundNotActive(ErrorMessage.ROUND_NOT_ACTIVE)
 
         if game_round.street == Street.SHOWDOWN:
-            raise AlreadyAtShowdown("Cannot advance street: round is already at showdown")
+            raise AlreadyAtShowdown(ErrorMessage.ALREADY_AT_SHOWDOWN)
 
         round_players = await get_round_players(self.db, round_id)
         player_seats = [
@@ -508,18 +508,18 @@ class GameCommandService:
         )
 
         if game.status != GameStatus.ACTIVE:
-            raise GameNotActive("Game is not in ACTIVE status")
+            raise GameNotActive(ErrorMessage.GAME_NOT_ACTIVE)
 
         room_config = await load_room_snapshot(self.db, game_id)
         max_level = max((bl.level for bl in room_config.blind_levels), default=1)
 
         if game.current_blind_level >= max_level:
-            raise GameNotActive("Already at the maximum blind level")
+            raise GameNotActive(ErrorMessage.MAX_BLIND_LEVEL_REACHED)
 
         new_level_num = game.current_blind_level + 1
         new_level = room_config.blind_level(new_level_num)
         if not new_level:
-            raise GameNotActive("Already at the maximum blind level")
+            raise GameNotActive(ErrorMessage.MAX_BLIND_LEVEL_REACHED)
 
         async with atomic(self.db):
             game.current_blind_level = new_level_num

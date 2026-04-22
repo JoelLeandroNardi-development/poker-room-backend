@@ -123,11 +123,11 @@ def _build_narrative(
 
         if pot_exp.winners:
             for w in pot_exp.winners:
-                lines.append(f"  → {w.player_id} wins {w.amount} chips.")
+                lines.append(f"  -> {w.player_id} wins {w.amount} chips.")
         elif pot_exp.eligible_player_ids:
             lines.append("  No winners submitted yet.")
         else:
-            lines.append("  No eligible winners — dead pot.")
+            lines.append("  No eligible winners - dead pot.")
 
         if pot_exp.unclaimed > 0 and pot_exp.winners:
             lines.append(f"  Unclaimed remainder: {pot_exp.unclaimed} chips.")

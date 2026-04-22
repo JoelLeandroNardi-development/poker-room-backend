@@ -2,8 +2,8 @@
 Texas Hold'em hand-flow scenario tests.
 
 These tests compose multiple pure domain functions to simulate realistic
-hand sequences:  blind posting → turn order → action validation →
-street progression → side-pot calculation.
+hand sequences:  blind posting -> turn order -> action validation ->
+street progression -> side-pot calculation.
 
 All tests are pure (no DB, no IO, no async).
 """
@@ -373,14 +373,14 @@ class TestActionLegality:
         assert r.action == BetAction.FOLD
 
     def test_no_bet_raise_illegal(self, validate_bet, HandContext, PlayerState):
-        """Can't RAISE when there's no bet — must BET instead."""
+        """Can't RAISE when there's no bet - must BET instead."""
         p = _player_state(PlayerState, "p1", 1, stack=1000)
         ctx = _hand_ctx(HandContext, [p], acting="p1", highest_bet=0)
         with pytest.raises(Exception):
             validate_bet(ctx, "p1", "RAISE", 100)
 
     def test_existing_bet_bet_illegal(self, validate_bet, HandContext, PlayerState):
-        """Can't BET when a bet already exists — must RAISE instead."""
+        """Can't BET when a bet already exists - must RAISE instead."""
         p = _player_state(PlayerState, "p1", 1, stack=1000)
         ctx = _hand_ctx(HandContext, [p], acting="p1", highest_bet=50)
         with pytest.raises(Exception):

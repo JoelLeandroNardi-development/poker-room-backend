@@ -50,10 +50,10 @@ class CorrectionCommandService:
 
         original = await get_ledger_entry_by_id(self.db, original_entry_id)
         if original is None or original.round_id != round_id:
-            raise LedgerEntryNotFound("Ledger entry not found")
+            raise LedgerEntryNotFound(ErrorMessage.LEDGER_ENTRY_NOT_FOUND)
 
         if original.entry_type in CORRECTION_ENTRY_TYPES:
-            raise CannotReverseCorrection("Cannot reverse a correction entry")
+            raise CannotReverseCorrection(ErrorMessage.CANNOT_REVERSE_CORRECTION)
 
         existing_entries = await get_ledger_entries(self.db, round_id)
         reversed_ids = {
@@ -61,7 +61,7 @@ class CorrectionCommandService:
             if e.entry_type == LedgerEntryType.ACTION_REVERSED
         }
         if original_entry_id in reversed_ids:
-            raise EntryAlreadyReversed("This ledger entry has already been reversed")
+            raise EntryAlreadyReversed(ErrorMessage.ENTRY_ALREADY_REVERSED)
 
         async with atomic(self.db):
             entry = append_ledger_entry(
@@ -127,7 +127,7 @@ class CorrectionCommandService:
         )
 
         if game_round.status != RoundStatus.COMPLETED:
-            raise RoundNotCompleted("Round must be completed before applying this correction")
+            raise RoundNotCompleted(ErrorMessage.ROUND_NOT_COMPLETED)
 
         async with atomic(self.db):
             game_round.status = RoundStatus.ACTIVE

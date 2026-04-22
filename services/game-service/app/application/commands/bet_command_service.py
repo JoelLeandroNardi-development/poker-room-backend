@@ -26,7 +26,7 @@ class BetCommandService:
         action_upper = data.action.upper()
 
         if action_upper not in VALID_BET_ACTIONS:
-            raise IllegalAction(f"Invalid bet action: {data.action}")
+            raise IllegalAction(f"{ErrorMessage.INVALID_ACTION}: {data.action}")
 
         if data.idempotency_key:
             existing = (

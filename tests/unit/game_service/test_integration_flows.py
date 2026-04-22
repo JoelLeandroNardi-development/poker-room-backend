@@ -3,7 +3,7 @@
 These tests compose the unified action pipeline with ORM model instances
 to simulate realistic multi-step hand flows:
 
-- Apply action → street close
+- Apply action -> street close
 - Full betting round with multiple players
 - Side-pot settlement with payout validation
 - Reverse / reopen correction flows

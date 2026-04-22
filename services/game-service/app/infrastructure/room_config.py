@@ -7,6 +7,7 @@ import httpx
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..domain.constants import ErrorMessage
 from ..domain.exceptions import NotFound
 from ..domain.models import RoomSnapshot, RoomSnapshotBlindLevel, RoomSnapshotPlayer
 from ..domain.integration.room_adapter import BlindLevelConfig, PlayerConfig, RoomConfig
@@ -17,7 +18,7 @@ async def fetch_room_config_http(room_id: str) -> RoomConfig:
     async with httpx.AsyncClient(timeout=10.0) as client:
         resp = await client.get(f"{ROOM_SERVICE_URL}/rooms/{room_id}")
         if resp.status_code == 404:
-            raise NotFound("Room not found")
+            raise NotFound(ErrorMessage.ROOM_NOT_FOUND)
         resp.raise_for_status()
 
     data = resp.json()
@@ -80,7 +81,7 @@ async def load_room_snapshot(db: AsyncSession, game_id: str) -> RoomConfig:
     )
     snap = res.scalar_one_or_none()
     if snap is None:
-        raise NotFound(f"Room snapshot not found for game {game_id}")
+        raise NotFound(ErrorMessage.ROOM_SNAPSHOT_NOT_FOUND.format(game_id=game_id))
 
     players_res = await db.execute(
         select(RoomSnapshotPlayer)
