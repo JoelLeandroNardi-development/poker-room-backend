@@ -5,6 +5,9 @@ import asyncio
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from ..clients.service_client import game_client
+from ..config import TABLE_STATE_RECONCILE_INTERVAL_SECONDS
+from ..infrastructure.table_state_fanout import table_state_fanout
+from ..infrastructure.table_state_ws import table_state_connections
 from ..utils.proxy import forward_response
 from shared.schemas.games import (
     RoundResponse, ResolveHandRequest, ResolveHandResponse,
@@ -76,35 +79,33 @@ async def get_table_state(round_id: str):
 
 @router.websocket("/{round_id}/table-state/ws")
 async def table_state_websocket(websocket: WebSocket, round_id: str):
-    await websocket.accept()
-    interval_seconds = 1.0
+    await table_state_connections.connect(round_id, websocket)
+    reconcile_interval = TABLE_STATE_RECONCILE_INTERVAL_SECONDS
     try:
-        raw_interval = websocket.query_params.get("interval")
+        raw_interval = (
+            websocket.query_params.get("reconcile_interval")
+            or websocket.query_params.get("interval")
+        )
         if raw_interval is not None:
-            interval_seconds = max(0.25, min(float(raw_interval), 10.0))
+            reconcile_interval = max(1.0, min(float(raw_interval), 300.0))
     except ValueError:
-        interval_seconds = 1.0
+        reconcile_interval = TABLE_STATE_RECONCILE_INTERVAL_SECONDS
 
     try:
+        await table_state_fanout.broadcast_table_state(
+            round_id,
+            trigger_event="websocket.connected",
+        )
         while True:
-            resp = await game_client.get(f"/rounds/{round_id}/table-state")
-            if resp.status_code >= 400:
-                await websocket.send_json({
-                    "type": "error",
-                    "status_code": resp.status_code,
-                    "detail": resp.text,
-                })
-                await asyncio.sleep(interval_seconds)
-                continue
-
-            await websocket.send_json({
-                "type": "table_state",
-                "round_id": round_id,
-                "data": resp.json(),
-            })
-            await asyncio.sleep(interval_seconds)
+            await asyncio.sleep(reconcile_interval)
+            await table_state_fanout.broadcast_table_state(
+                round_id,
+                trigger_event="websocket.reconcile",
+            )
     except WebSocketDisconnect:
         return
+    finally:
+        await table_state_connections.disconnect(round_id, websocket)
 
 @router.post("/{round_id}/corrections/reverse-action", response_model=LedgerEntryResponse)
 async def reverse_action(round_id: str, data: ReverseActionRequest):

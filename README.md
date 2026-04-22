@@ -32,14 +32,13 @@ The codebase currently supports:
 - Hand replay, hand-state rebuilding, consistency checks, settlement explanation, and action timeline.
 - Table runtime state: pause/resume, duration-based blind clock, session status.
 - Password reset token request, email delivery, and reset flow.
-- Gateway WebSocket endpoint for periodic table-state snapshots.
+- Gateway WebSocket endpoint for event-driven table-state snapshots from RabbitMQ/outbox events, with periodic reconciliation fallback.
 - Gateway proxy over all main public routes.
 - Docker Compose environment with PostgreSQL and RabbitMQ.
 
 Remaining limitations:
 
 - There is no poker hand evaluator yet. The backend tracks betting/settlement but does not decide that a flush beats a straight.
-- WebSocket table-state support currently pushes periodic snapshots from the gateway. It is not yet event-driven from RabbitMQ/outbox messages.
 
 ---
 
@@ -408,7 +407,7 @@ Round endpoints:
 | GET | `/rounds/{round_id}/settlement-explanation` | `/rounds/{round_id}/settlement-explanation` | Pot breakdown and narrative. |
 | GET | `/rounds/{round_id}/consistency-check` | `/rounds/{round_id}/consistency-check` | Compare live projection against ledger replay. |
 | GET | `/rounds/{round_id}/table-state` | `/rounds/{round_id}/table-state` | Frontend-oriented authoritative state. |
-| WS | `/rounds/{round_id}/table-state/ws` | N/A | Gateway WebSocket that pushes periodic table-state snapshots. Optional `interval` query parameter, clamped to 0.25-10 seconds. |
+| WS | `/rounds/{round_id}/table-state/ws` | N/A | Gateway WebSocket that sends an initial table-state snapshot, pushes updates on RabbitMQ/outbox events, and sends reconciliation snapshots. Optional `reconcile_interval` query parameter, clamped to 1-300 seconds. Legacy `interval` is also accepted. |
 
 Bet endpoints:
 
@@ -714,6 +713,9 @@ Main modules:
 |---|---|
 | `app/main.py` | FastAPI app, route registration, correlation middleware, client shutdown. |
 | `app/clients/service_client.py` | Persistent service clients for auth/user/room/game. |
+| `app/infrastructure/table_state_ws.py` | In-memory WebSocket subscription manager keyed by `round_id`. |
+| `app/infrastructure/table_state_fanout.py` | Fetches authoritative game-service table state and broadcasts to subscribers. |
+| `app/infrastructure/table_state_events.py` | RabbitMQ consumer for table-state-relevant outbox events. |
 | `app/utils/proxy.py` | Response forwarding and error propagation. |
 | `app/routes/auth_routes.py` | Auth and auth-user proxy routes. |
 | `app/routes/user_routes.py` | User profile proxy routes. |
@@ -724,6 +726,14 @@ Main modules:
 | `app/routes/bet_routes.py` | Bet proxy routes. |
 
 The gateway adds or propagates `X-Correlation-ID` for each request.
+
+Table-state WebSocket behavior:
+
+- Clients connect to `WS /rounds/{round_id}/table-state/ws`.
+- The gateway subscribes that socket to the `round_id` and immediately sends the current table-state snapshot from game-service.
+- The gateway consumes RabbitMQ events from the shared domain-event exchange. By default it reacts to `bet.placed`, `game.round_started`, `game.round_completed`, `game.street_advanced`, and `game.correction_applied`.
+- On each event with a `round_id`, the gateway fetches `GET /rounds/{round_id}/table-state` from game-service and broadcasts that authoritative snapshot to connected clients for that round.
+- The socket also sends a slower reconciliation snapshot every `TABLE_STATE_RECONCILE_INTERVAL_SECONDS` seconds so clients recover if an event is missed.
 
 ---
 
@@ -823,7 +833,7 @@ Current local verification:
 ```text
 python -m compileall services shared tests
 python -m pytest tests/unit
-400 passed
+404 passed
 ```
 
 Integration tests live under `tests/integration` and are intended for database-backed behavior such as PostgreSQL concurrency.
@@ -832,11 +842,12 @@ Integration tests live under `tests/integration` and are intended for database-b
 
 ## Test Coverage Map
 
-Current unit suite size: 400 tests.
+Current unit suite size: 404 tests.
 
 | Area | What it covers |
 |---|---|
 | Auth infrastructure | Password hashing, JWTs, refresh token helpers, password reset email flow. |
+| Gateway table-state fanout | WebSocket subscription manager and RabbitMQ event-triggered table-state broadcasts. |
 | User CRUD | Create/list/fetch user profile behavior. |
 | Room repository | Room codes, room lookup, players ordered by seat, counts, duplicate names. |
 | Bet validator | Turn rules, fold/check/call/bet/raise/all-in validation, stack and min-raise rules. |
@@ -924,12 +935,17 @@ Key environment variables:
 | `SMTP_FROM_EMAIL` | auth-service | Sender address for password reset email. Defaults to `no-reply@localhost`. |
 | `SMTP_USE_TLS` | auth-service | Enables SMTP STARTTLS. Defaults to true. |
 | `SMTP_TIMEOUT_SECONDS` | auth-service | SMTP connection timeout. Defaults to `10`. |
-| `RABBIT_URL` | room/game/user services | RabbitMQ connection URL. |
-| `EXCHANGE_NAME` | room/game/user services | Topic exchange name. |
+| `RABBIT_URL` | room/game/user/gateway services | RabbitMQ connection URL. |
+| `EXCHANGE_NAME` | room/game/user/gateway services | Topic exchange name. |
 | `ROOM_SERVICE_URL` | game-service/gateway | Room service base URL. |
 | `GAME_SERVICE_URL` | gateway | Game service base URL. |
 | `AUTH_SERVICE_URL` | gateway | Auth service base URL. |
 | `USER_SERVICE_URL` | gateway | User service base URL. |
+| `TABLE_STATE_EVENT_ROUTING_KEYS` | gateway | Comma-separated event routing keys that trigger WebSocket table-state pushes. Defaults to bet/round/correction events. |
+| `TABLE_STATE_RECONCILE_INTERVAL_SECONDS` | gateway | WebSocket reconciliation snapshot interval. Defaults to `30`. |
+| `TABLE_STATE_EVENT_CONSUMER_QUEUE` | gateway | RabbitMQ queue name for table-state event fanout. Defaults to `gateway.table_state.events`. |
+| `TABLE_STATE_EVENT_RETRY_DELAY_MS` | gateway | Retry delay for failed table-state event handling. Defaults to `5000`. |
+| `TABLE_STATE_EVENT_MAX_RETRIES` | gateway | Max retries before a table-state event goes to DLQ. Defaults to `3`. |
 
 ---
 
@@ -955,6 +971,7 @@ Key environment variables:
 The latest code state includes these cleanup changes:
 
 - Room detail response assembly is centralized in `build_room_detail_response()`.
+- Gateway table-state WebSockets are event-driven from RabbitMQ/outbox events, with reconciliation snapshots as a fallback.
 - Dealer/SB/BB assignment and rotation are centralized in `domain/engine/positions.py`.
 - Room code generation uses `secrets.choice`.
 - The unused `get_latest_round()` helper was removed from game repository documentation/code.
@@ -966,7 +983,6 @@ The latest code state includes these cleanup changes:
 ## Future Work
 
 - Add a poker hand evaluator for showdown hand ranking.
-- Replace periodic WebSocket table-state snapshots with event-driven push from domain events.
 - Expose table runtime routes through the gateway if they should be public.
 - Add rate limiting to the gateway.
 - Add metrics and distributed tracing.

@@ -9,6 +9,7 @@ from starlette.responses import Response
 
 from .clients.service_client import auth_client, user_client, room_client, game_client
 from .config import SERVICE_NAME
+from .infrastructure.table_state_events import table_state_event_consumer
 from .routes.auth_routes import router as auth_router
 from .routes.user_routes import router as user_router
 from .routes.room_routes import router as room_router
@@ -30,9 +31,13 @@ class GatewayCorrelationMiddleware(BaseHTTPMiddleware):
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    yield
-    for client in (auth_client, user_client, room_client, game_client):
-        await client.close()
+    await table_state_event_consumer.start()
+    try:
+        yield
+    finally:
+        await table_state_event_consumer.stop()
+        for client in (auth_client, user_client, room_client, game_client):
+            await client.close()
 
 app = FastAPI(
     title="Poker Room API",
@@ -52,4 +57,8 @@ app.include_router(bet_router)
 
 @app.get("/health")
 async def health():
-    return {"status": "ok", "service": SERVICE_NAME}
+    return {
+        "status": "ok",
+        "service": SERVICE_NAME,
+        "table_state_events_enabled": table_state_event_consumer.enabled,
+    }
