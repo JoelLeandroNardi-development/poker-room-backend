@@ -8,20 +8,12 @@ from ...domain.constants import ErrorMessage, ResponseKey, TokenClaim, TokenType
 from ...domain.models import AuthUser, AuthSession
 from ...domain.schemas import Register, Login, RefreshRequest, LogoutRequest
 from ...infrastructure.password_hasher import password_hasher
-from ...infrastructure.password_reset_email import ConfiguredPasswordResetEmailSender, PasswordResetEmailSender
 from ...infrastructure.token_service import JWTError, decode_token, hash_token, issue_token_pair
-from shared.core.time import utc_now
+from shared.core.time import ensure_utc, utc_now
 
 class AuthAuthenticationCommandService:
-    def __init__(
-        self,
-        db: AsyncSession,
-        password_reset_email_sender: PasswordResetEmailSender | None = None,
-    ):
+    def __init__(self, db: AsyncSession):
         self.db = db
-        self.password_reset_email_sender = (
-            password_reset_email_sender or ConfiguredPasswordResetEmailSender()
-        )
 
     async def register(self, data: Register) -> dict:
         existing = await get_user_by_email(self.db, data.email)
@@ -92,7 +84,7 @@ class AuthAuthenticationCommandService:
         now = utc_now()
         if session.revoked_at is not None:
             raise HTTPException(status_code=401, detail=ErrorMessage.SESSION_REVOKED)
-        if session.expires_at <= now:
+        if ensure_utc(session.expires_at) <= now:
             raise HTTPException(status_code=401, detail=ErrorMessage.SESSION_EXPIRED)
         if session.refresh_token_hash != hash_token(data.refresh_token):
             raise HTTPException(status_code=401, detail=ErrorMessage.INVALID_OR_EXPIRED_REFRESH_TOKEN)

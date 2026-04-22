@@ -66,7 +66,31 @@ async def test_auth_service_split_routes_register_login_and_reset(auth_app_modul
             json={"email": "route-reset@example.com", "password": "old-password"},
         )
         assert login.status_code == 200
-        assert login.json()["access_token"]
+        login_body = login.json()
+        assert login_body["access_token"]
+        assert login_body["refresh_token"]
+
+        refresh = await client.post(
+            "/refresh",
+            json={"refresh_token": login_body["refresh_token"]},
+        )
+        assert refresh.status_code == 200
+        refresh_body = refresh.json()
+        assert refresh_body["access_token"]
+        assert refresh_body["refresh_token"]
+
+        stale_refresh = await client.post(
+            "/refresh",
+            json={"refresh_token": login_body["refresh_token"]},
+        )
+        assert stale_refresh.status_code == 401
+
+        logout = await client.post(
+            "/logout",
+            json={"refresh_token": refresh_body["refresh_token"]},
+        )
+        assert logout.status_code == 200
+        assert logout.json() == {"ok": True}
 
         forgot = await client.post(
             "/forgot-password",
