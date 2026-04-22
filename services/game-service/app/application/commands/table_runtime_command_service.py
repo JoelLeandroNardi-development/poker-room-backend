@@ -11,7 +11,7 @@ from ...domain.engine.table_runtime import (
 )
 from ...domain.integration.room_adapter import RoomConfig
 from ...infrastructure.logging import get_logger
-from ...infrastructure.repository import fetch_or_raise
+from ...infrastructure.repositories.game_repository import fetch_or_raise
 from ...infrastructure.room_config import load_room_snapshot
 from shared.core.db.session import atomic
 from shared.core.time import ensure_utc, utc_now

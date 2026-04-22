@@ -40,9 +40,15 @@ def exceptions_mod():
     )
 
 @pytest.fixture(scope="module")
-def repo_mod():
+def game_repo_mod():
     return load_service_app_module(
-        "game-service", "infrastructure/repository", package_name=PACKAGE,
+        "game-service", "infrastructure/repositories/game_repository", package_name=PACKAGE,
+    )
+
+@pytest.fixture(scope="module")
+def round_state_repo_mod():
+    return load_service_app_module(
+        "game-service", "infrastructure/repositories/round_state_repository", package_name=PACKAGE,
     )
 
 @pytest.fixture(scope="module")
@@ -144,14 +150,14 @@ def _make_players(models_mod, round_id):
 class TestCASConcurrency:
     @pytest.mark.asyncio
     async def test_cas_succeeds_when_version_matches(
-        self, session, models_mod, repo_mod,
+        self, session, models_mod, game_repo_mod, round_state_repo_mod,
     ):
         rid = str(uuid.uuid4())
         game_round = _make_round(models_mod, round_id=rid)
         session.add(game_round)
         await session.commit()
 
-        fetched = await repo_mod.fetch_or_raise(
+        fetched = await game_repo_mod.fetch_or_raise(
             session, models_mod.Round,
             filter_column=models_mod.Round.round_id,
             filter_value=rid,
@@ -161,10 +167,10 @@ class TestCASConcurrency:
         fetched.pot_amount = 200
         fetched.state_version = version_before + 1
 
-        await repo_mod.cas_update_round(session, fetched, version_before)
+        await round_state_repo_mod.cas_update_round(session, fetched, version_before)
         await session.commit()
 
-        updated = await repo_mod.fetch_or_raise(
+        updated = await game_repo_mod.fetch_or_raise(
             session, models_mod.Round,
             filter_column=models_mod.Round.round_id,
             filter_value=rid,
@@ -175,14 +181,14 @@ class TestCASConcurrency:
 
     @pytest.mark.asyncio
     async def test_cas_fails_when_version_stale(
-        self, session, models_mod, repo_mod, exceptions_mod,
+        self, session, models_mod, game_repo_mod, round_state_repo_mod, exceptions_mod,
     ):
         rid = str(uuid.uuid4())
         game_round = _make_round(models_mod, round_id=rid, state_version=5)
         session.add(game_round)
         await session.commit()
 
-        fetched = await repo_mod.fetch_or_raise(
+        fetched = await game_repo_mod.fetch_or_raise(
             session, models_mod.Round,
             filter_column=models_mod.Round.round_id,
             filter_value=rid,
@@ -192,11 +198,11 @@ class TestCASConcurrency:
         fetched.state_version = 6
 
         with pytest.raises(exceptions_mod.StaleStateError):
-            await repo_mod.cas_update_round(session, fetched, expected_version=3)
+            await round_state_repo_mod.cas_update_round(session, fetched, expected_version=3)
 
     @pytest.mark.asyncio
     async def test_concurrent_writers_one_wins(
-        self, engine_and_tables, models_mod, repo_mod, exceptions_mod,
+        self, engine_and_tables, models_mod, game_repo_mod, round_state_repo_mod, exceptions_mod,
     ):
         from sqlalchemy.ext.asyncio import async_sessionmaker
 
@@ -214,7 +220,7 @@ class TestCASConcurrency:
 
         async def writer(pot_delta: int):
             async with Session() as s:
-                fetched = await repo_mod.fetch_or_raise(
+                fetched = await game_repo_mod.fetch_or_raise(
                     s, models_mod.Round,
                     filter_column=models_mod.Round.round_id,
                     filter_value=rid,
@@ -224,7 +230,7 @@ class TestCASConcurrency:
                 fetched.pot_amount += pot_delta
                 fetched.state_version = version_before + 1
                 try:
-                    await repo_mod.cas_update_round(s, fetched, version_before)
+                    await round_state_repo_mod.cas_update_round(s, fetched, version_before)
                     await s.commit()
                     results["success"] += 1
                 except exceptions_mod.StaleStateError:

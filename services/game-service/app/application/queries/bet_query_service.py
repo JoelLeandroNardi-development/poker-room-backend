@@ -4,7 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..mappers import bet_to_response
 from ...domain.constants import BetAction
-from ...infrastructure.repository import get_bets_for_round, get_pot_total
+from ...infrastructure.repositories.bet_repository import get_bets_for_round, get_pot_total
 from shared.schemas.bets import BetResponse, PotResponse, PlayerBetSummary
 
 class BetQueryService:

@@ -29,10 +29,8 @@ from ...domain.engine.positions import assign_positions, rotate_positions
 from ...domain.integration.room_adapter import BlindLevelConfig, RoomConfig
 from ...domain.rules import NO_LIMIT_HOLDEM
 from ...domain.engine.street_progression import PlayerSeat, evaluate_street_end
-from ...infrastructure.repository import (
-    count_rounds, get_active_game_for_room, get_active_round,
-    get_round_players, fetch_or_raise,
-)
+from ...infrastructure.repositories.game_repository import fetch_or_raise, get_active_game_for_room
+from ...infrastructure.repositories.round_repository import get_active_round, count_rounds, get_round_players
 from ...infrastructure.room_config import (
     fetch_room_config_http, load_room_snapshot, save_room_snapshot,
 )

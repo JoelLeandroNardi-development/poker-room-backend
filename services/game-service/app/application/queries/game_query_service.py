@@ -16,10 +16,9 @@ from ...domain.schemas import (
 )
 from ...domain.reporting.settlement_explainer import explain_settlement
 from ...domain.engine.side_pots import PlayerContribution
-from ...infrastructure.repository import (
-    get_ledger_entries, get_rounds_for_game, get_active_round,
-    get_round_players, get_round_payouts, fetch_or_raise,
-)
+from ...infrastructure.repositories.game_repository import fetch_or_raise
+from ...infrastructure.repositories.ledger_repository import get_ledger_entries
+from ...infrastructure.repositories.round_repository import get_active_round, get_round_players, get_round_payouts, get_rounds_for_game
 
 class GameQueryService:
     def __init__(self, db: AsyncSession):

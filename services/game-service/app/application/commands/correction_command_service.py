@@ -11,10 +11,10 @@ from ...domain.constants import (
 from ...domain.events import build_event
 from ...domain.exceptions import CannotReverseCorrection, EntryAlreadyReversed, LedgerEntryNotFound, RoundNotCompleted
 from ...domain.ledger.hand_ledger import LedgerRow, rebuild_hand_state, HandState
-from ...domain.models import HandLedgerEntry, OutboxEvent, Round, RoundPlayer
-from ...infrastructure.repository import (
-    get_ledger_entries, get_ledger_entry_by_id, get_round_players, fetch_or_raise,
-)
+from ...domain.models import HandLedgerEntry, OutboxEvent, Round
+from ...infrastructure.repositories.game_repository import fetch_or_raise
+from ...infrastructure.repositories.ledger_repository import get_ledger_entries, get_ledger_entry_by_id
+from ...infrastructure.repositories.round_repository import get_round_players
 from shared.core.db.session import atomic
 from shared.core.outbox.helpers import add_outbox_event
 
