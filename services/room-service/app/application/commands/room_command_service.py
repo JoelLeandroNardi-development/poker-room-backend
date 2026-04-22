@@ -6,7 +6,7 @@ from fastapi import HTTPException
 from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..mappers import room_to_response, player_to_response, blind_level_to_response
+from ..mappers import room_to_response, player_to_response, room_detail_to_response
 from ...domain.constants import (
     DataKey, ErrorMessage, ResponseMessage, RoomEventType, RoomStatus,
 )
@@ -141,12 +141,7 @@ class RoomCommandService:
         players = await get_players_in_room(self.db, room_id)
         levels = await get_blind_levels(self.db, room_id)
 
-        return RoomDetailResponse(
-            room=room_to_response(room),
-            players=[player_to_response(p) for p in players],
-            blind_levels=[blind_level_to_response(bl) for bl in levels],
-            starting_dealer_seat=room.starting_dealer_seat,
-        )
+        return room_detail_to_response(room, players, levels)
 
     async def update_player_chips(self, player_id: str, data: UpdateChips) -> RoomPlayerResponse:
         player = await fetch_or_404(

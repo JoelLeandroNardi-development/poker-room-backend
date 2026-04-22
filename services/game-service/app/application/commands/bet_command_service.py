@@ -52,7 +52,7 @@ class BetCommandService:
                         f"in round {data.round_id} with a different payload"
                     )
                 logger.info(
-                    "idempotency hit — returning existing bet",
+                    "idempotency hit - returning existing bet",
                     round_id=data.round_id,
                     player_id=data.player_id,
                     idempotency_key=data.idempotency_key,

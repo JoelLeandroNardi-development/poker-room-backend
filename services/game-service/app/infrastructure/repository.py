@@ -23,15 +23,6 @@ async def get_active_game_for_room(db: AsyncSession, room_id: str) -> Game | Non
     )
     return res.scalar_one_or_none()
 
-async def get_latest_round(db: AsyncSession, game_id: str) -> Round | None:
-    res = await db.execute(
-        select(Round)
-        .where(Round.game_id == game_id)
-        .order_by(Round.round_number.desc())
-        .limit(1)
-    )
-    return res.scalar_one_or_none()
-
 async def get_active_round(db: AsyncSession, game_id: str) -> Round | None:
     res = await db.execute(
         select(Round)
@@ -128,7 +119,7 @@ async def cas_update_round(
         db.autoflush = saved_autoflush
     if result.rowcount == 0:
         logger.warning(
-            "CAS conflict — stale version",
+            "CAS conflict - stale version",
             round_id=game_round.round_id,
             expected_version=expected_version,
             attempted_version=game_round.state_version,

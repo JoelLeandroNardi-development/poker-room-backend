@@ -60,9 +60,6 @@ class RoomDetailResponse(BaseModel):
 class UpdateChips(BaseModel):
     chip_count: int = Field(..., ge=0)
 
-class EliminatePlayer(BaseModel):
-    pass
-
 class DeleteRoomResponse(BaseModel):
     message: str
     room_id: str

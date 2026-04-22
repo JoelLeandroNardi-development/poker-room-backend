@@ -1,5 +1,6 @@
 from ..domain.models import Room, RoomPlayer, BlindLevel
 from ..domain.schemas import RoomResponse, RoomPlayerResponse, BlindLevelResponse
+from ..domain.schemas import RoomDetailResponse
 
 def room_to_response(room: Room) -> RoomResponse:
     return RoomResponse(
@@ -33,4 +34,16 @@ def blind_level_to_response(bl: BlindLevel) -> BlindLevelResponse:
         big_blind=bl.big_blind,
         ante=bl.ante,
         duration_minutes=bl.duration_minutes,
+    )
+
+def room_detail_to_response(
+    room: Room,
+    players: list[RoomPlayer],
+    blind_levels: list[BlindLevel],
+) -> RoomDetailResponse:
+    return RoomDetailResponse(
+        room=room_to_response(room),
+        players=[player_to_response(p) for p in players],
+        blind_levels=[blind_level_to_response(bl) for bl in blind_levels],
+        starting_dealer_seat=room.starting_dealer_seat,
     )

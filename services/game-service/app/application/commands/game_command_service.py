@@ -6,7 +6,9 @@ from datetime import datetime, timezone
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..action_helpers import append_ledger_entry
-from ..mappers import game_to_response, round_to_response, payout_to_response
+from ..mappers import (
+    game_to_response, round_to_response, payout_to_response, round_player_to_response,
+)
 from ...domain.constants import (
     DataKey, ErrorMessage, GameEventType, GameStatus, LedgerEntryType,
     RoundStatus, Street, StreetAdvanceAction,
@@ -23,6 +25,7 @@ from ...domain.schemas import (
     ResolveHandResponse, AdvanceBlindsResponse, AdvanceStreetResponse, EndGameResponse,
 )
 from ...domain.engine.blind_posting import SeatPlayer, post_blinds_and_antes
+from ...domain.engine.positions import assign_positions, rotate_positions
 from ...domain.rules import NO_LIMIT_HOLDEM
 from ...domain.engine.street_progression import PlayerSeat, evaluate_street_end
 from ...infrastructure.repository import (
@@ -460,8 +463,6 @@ class GameCommandService:
         await self.db.commit()
         await self.db.refresh(game_round)
 
-        from ..mappers import round_player_to_response
-
         return AdvanceStreetResponse(
             action=result.action,
             round_id=game_round.round_id,
@@ -575,37 +576,8 @@ class GameCommandService:
 
     @staticmethod
     def _assign_positions(active_seats: list[int], starting_dealer: int) -> tuple[int, int, int]:
-        if len(active_seats) == 2:
-            if starting_dealer in active_seats:
-                dealer_idx = active_seats.index(starting_dealer)
-            else:
-                dealer_idx = 0
-            sb_idx = dealer_idx
-            bb_idx = (dealer_idx + 1) % len(active_seats)
-            return active_seats[dealer_idx], active_seats[sb_idx], active_seats[bb_idx]
-
-        if starting_dealer in active_seats:
-            dealer_idx = active_seats.index(starting_dealer)
-        else:
-            dealer_idx = 0
-
-        sb_idx = (dealer_idx + 1) % len(active_seats)
-        bb_idx = (dealer_idx + 2) % len(active_seats)
-        return active_seats[dealer_idx], active_seats[sb_idx], active_seats[bb_idx]
+        return assign_positions(active_seats, starting_dealer)
 
     @staticmethod
     def _rotate_positions(active_seats: list[int], current_dealer: int) -> tuple[int, int, int]:
-        if current_dealer in active_seats:
-            current_idx = active_seats.index(current_dealer)
-            new_dealer_idx = (current_idx + 1) % len(active_seats)
-        else:
-            new_dealer_idx = 0
-
-        if len(active_seats) == 2:
-            sb_idx = new_dealer_idx
-            bb_idx = (new_dealer_idx + 1) % len(active_seats)
-        else:
-            sb_idx = (new_dealer_idx + 1) % len(active_seats)
-            bb_idx = (new_dealer_idx + 2) % len(active_seats)
-
-        return active_seats[new_dealer_idx], active_seats[sb_idx], active_seats[bb_idx]
+        return rotate_positions(active_seats, current_dealer)

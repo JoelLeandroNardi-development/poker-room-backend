@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import random
+import secrets
 import string
 
 from sqlalchemy import select, func
@@ -12,7 +12,7 @@ from ..domain.models import Room, RoomPlayer, BlindLevel
 async def generate_unique_code(db: AsyncSession) -> str:
     chars = string.ascii_uppercase + string.digits
     for _ in range(100):
-        code = "".join(random.choices(chars, k=CODE_LENGTH))
+        code = "".join(secrets.choice(chars) for _ in range(CODE_LENGTH))
         res = await db.execute(select(Room).where(Room.code == code))
         if res.scalar_one_or_none() is None:
             return code

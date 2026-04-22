@@ -4,7 +4,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..mappers import game_to_response, round_to_response, round_player_to_response
-from ...domain.constants import BetAction, ErrorMessage, GameStatus
+from ...domain.constants import BetAction, ErrorMessage, GameStatus, RoundStatus, Street
 from ...domain.ledger.hand_history import build_hand_timeline
 from ...domain.ledger.hand_ledger import LedgerRow
 from ...domain.ledger.hand_replay import replay_hand, verify_consistency
@@ -298,7 +298,6 @@ class GameQueryService:
                         action=BetAction.ALL_IN, min_amount=stack, max_amount=stack,
                     ))
 
-        from ...domain.constants import Street, RoundStatus
         is_showdown_ready = (
             game_round.street == Street.SHOWDOWN
             or game_round.status == RoundStatus.COMPLETED
