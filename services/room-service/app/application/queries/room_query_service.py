@@ -4,12 +4,12 @@ from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..mappers import room_to_response, player_to_response
+from ..mappers import room_to_response
 from ..room_details import build_room_detail_response
 from ...domain.constants import ErrorMessage
-from ...domain.models import Room, RoomPlayer
-from ...domain.schemas import RoomResponse, RoomDetailResponse, RoomPlayerResponse
-from ...infrastructure.repository import get_room_by_code
+from ...domain.models import Room
+from ...domain.schemas import RoomResponse, RoomDetailResponse
+from ...infrastructure.repositories.room_repository import get_room_by_code
 from shared.core.db.crud import fetch_or_404
 
 class RoomQueryService:
@@ -40,12 +40,3 @@ class RoomQueryService:
 
         res = await self.db.execute(stmt)
         return [room_to_response(r) for r in res.scalars().all()]
-
-    async def get_player(self, player_id: str) -> RoomPlayerResponse:
-        player = await fetch_or_404(
-            self.db, RoomPlayer,
-            filter_column=RoomPlayer.player_id,
-            filter_value=player_id,
-            detail=ErrorMessage.PLAYER_NOT_FOUND,
-        )
-        return player_to_response(player)

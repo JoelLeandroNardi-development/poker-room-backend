@@ -4,7 +4,10 @@ import asyncio
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
-from .api.routes import router
+from .api.commands.room_command_routes import room_command_router
+from .api.commands.room_player_command_routes import room_player_command_router
+from .api.queries.room_query_routes import room_query_router
+from .api.queries.room_player_query_routes import room_player_query_router
 from .infrastructure.config import SERVICE_LOG_PREFIX, SERVICE_NAME
 from .infrastructure.messaging import publisher, RABBIT_URL, EXCHANGE_NAME
 from .infrastructure.outbox_worker import run_outbox_forever, outbox_stats
@@ -39,7 +42,10 @@ async def lifespan(app: FastAPI):
         pass
 
 app = FastAPI(title="Room Service", lifespan=lifespan)
-app.include_router(router)
+app.include_router(room_command_router)
+app.include_router(room_player_command_router)
+app.include_router(room_query_router)
+app.include_router(room_player_query_router)
 
 @app.get("/health", response_model=dict[str, object])
 async def health():

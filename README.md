@@ -309,11 +309,19 @@ Main modules:
 
 | Path | Purpose |
 |---|---|
-| `app/api/routes.py` | Room, player, blind endpoints. |
-| `app/application/commands/room_command_service.py` | Create room, join, set blinds, update chips, eliminate player, delete room. |
-| `app/application/queries/room_query_service.py` | Room/player reads. |
+| `app/api/commands/room_command_routes.py` | Room creation, blind setup, seat reorder, and room deletion routes. |
+| `app/api/commands/room_player_command_routes.py` | Join room, chip update, and player elimination routes. |
+| `app/api/queries/room_query_routes.py` | Room detail, join-code lookup, and room list routes. |
+| `app/api/queries/room_player_query_routes.py` | Player detail routes. |
+| `app/application/commands/room_command_service.py` | Create room, set blinds, reorder seats, delete room. |
+| `app/application/commands/room_player_command_service.py` | Join room, update chips, eliminate player. |
+| `app/application/queries/room_query_service.py` | Room reads. |
+| `app/application/queries/room_player_query_service.py` | Player reads. |
+| `app/application/room_details.py` | Shared room detail response assembly. |
+| `app/application/seat_helpers.py` | Join-seat resolution and seat-reorder validation. |
 | `app/application/mappers.py` | Response mappers, including `room_detail_to_response`. |
-| `app/infrastructure/repository.py` | Code generation and room/player/blind queries. |
+| `app/infrastructure/repositories/room_repository.py` | Room code generation, join-code lookup, blind-level queries. |
+| `app/infrastructure/repositories/room_player_repository.py` | Room-player list, count, seat, and name lookup queries. |
 | `app/domain/models.py` | `Room`, `RoomPlayer`, `BlindLevel`. |
 | `app/domain/events.py` | Room event builder. |
 | `app/infrastructure/outbox_worker.py` | Outbox publishing loop. |

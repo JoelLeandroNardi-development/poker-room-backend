@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 import os
-from datetime import datetime, timezone
-from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -28,21 +26,35 @@ def room_models_module(room_db_module):
     )
 
 @pytest.fixture(scope="module")
-def room_repo_module(room_models_module):
+def room_repository_module(room_models_module):
     return load_service_app_module(
-        "room-service", "infrastructure/repository",
+        "room-service", "infrastructure/repositories/room_repository",
         package_name="room_test_app",
     )
 
 @pytest.fixture(scope="module")
-def room_command_module(room_repo_module):
+def room_player_repository_module(room_models_module):
+    return load_service_app_module(
+        "room-service", "infrastructure/repositories/room_player_repository",
+        package_name="room_test_app",
+    )
+
+@pytest.fixture(scope="module")
+def room_command_module(room_repository_module, room_player_repository_module):
     return load_service_app_module(
         "room-service", "application/commands/room_command_service",
         package_name="room_test_app",
     )
 
 @pytest.fixture(scope="module")
-def room_schema_module(room_command_module):
+def room_player_command_module(room_command_module):
+    return load_service_app_module(
+        "room-service", "application/commands/room_player_command_service",
+        package_name="room_test_app",
+    )
+
+@pytest.fixture(scope="module")
+def room_schema_module(room_player_command_module):
     return load_service_app_module(
         "room-service", "domain/schemas",
         package_name="room_test_app",
@@ -90,121 +102,121 @@ async def _insert_player(room_db_module, room_models_module, *, room_id: str, pl
 @pytest.mark.unit
 class TestGenerateUniqueCode:
     @pytest.mark.asyncio
-    async def test_code_is_4_chars(self, room_db_module, room_repo_module):
+    async def test_code_is_4_chars(self, room_db_module, room_repository_module):
         async with room_db_module.SessionLocal() as db:
-            code = await room_repo_module.generate_unique_code(db)
+            code = await room_repository_module.generate_unique_code(db)
         assert len(code) == 4
 
     @pytest.mark.asyncio
-    async def test_code_is_alphanumeric_upper(self, room_db_module, room_repo_module):
+    async def test_code_is_alphanumeric_upper(self, room_db_module, room_repository_module):
         async with room_db_module.SessionLocal() as db:
-            code = await room_repo_module.generate_unique_code(db)
+            code = await room_repository_module.generate_unique_code(db)
         assert code.isalnum()
         assert code == code.upper()
 
     @pytest.mark.asyncio
-    async def test_codes_are_unique(self, room_db_module, room_repo_module):
+    async def test_codes_are_unique(self, room_db_module, room_repository_module):
         codes = set()
         async with room_db_module.SessionLocal() as db:
             for _ in range(20):
-                code = await room_repo_module.generate_unique_code(db)
+                code = await room_repository_module.generate_unique_code(db)
                 codes.add(code)
         assert len(codes) == 20
 
 @pytest.mark.unit
 class TestGetRoomByCode:
     @pytest.mark.asyncio
-    async def test_found(self, room_db_module, room_models_module, room_repo_module):
+    async def test_found(self, room_db_module, room_models_module, room_repository_module):
         await _insert_room(room_db_module, room_models_module, room_id="r1", code="ABCD")
         async with room_db_module.SessionLocal() as db:
-            room = await room_repo_module.get_room_by_code(db, "ABCD")
+            room = await room_repository_module.get_room_by_code(db, "ABCD")
         assert room is not None
         assert room.room_id == "r1"
 
     @pytest.mark.asyncio
-    async def test_case_insensitive(self, room_db_module, room_models_module, room_repo_module):
+    async def test_case_insensitive(self, room_db_module, room_models_module, room_repository_module):
         await _insert_room(room_db_module, room_models_module, room_id="r2", code="XY12")
         async with room_db_module.SessionLocal() as db:
-            room = await room_repo_module.get_room_by_code(db, "xy12")
+            room = await room_repository_module.get_room_by_code(db, "xy12")
         assert room is not None
         assert room.code == "XY12"
 
     @pytest.mark.asyncio
-    async def test_not_found(self, room_db_module, room_repo_module):
+    async def test_not_found(self, room_db_module, room_repository_module):
         async with room_db_module.SessionLocal() as db:
-            room = await room_repo_module.get_room_by_code(db, "ZZZZ")
+            room = await room_repository_module.get_room_by_code(db, "ZZZZ")
         assert room is None
 
 @pytest.mark.unit
 class TestGetPlayersInRoom:
     @pytest.mark.asyncio
-    async def test_returns_ordered_by_seat(self, room_db_module, room_models_module, room_repo_module):
+    async def test_returns_ordered_by_seat(self, room_db_module, room_models_module, room_player_repository_module):
         await _insert_room(room_db_module, room_models_module, room_id="r3", code="SEAT")
         await _insert_player(room_db_module, room_models_module, room_id="r3", player_id="p1", player_name="Alice", seat=3)
         await _insert_player(room_db_module, room_models_module, room_id="r3", player_id="p2", player_name="Bob", seat=1)
         await _insert_player(room_db_module, room_models_module, room_id="r3", player_id="p3", player_name="Carol", seat=2)
 
         async with room_db_module.SessionLocal() as db:
-            players = await room_repo_module.get_players_in_room(db, "r3")
+            players = await room_player_repository_module.get_players_in_room(db, "r3")
 
         seats = [p.seat_number for p in players]
         assert seats == [1, 2, 3]
 
     @pytest.mark.asyncio
-    async def test_empty_room(self, room_db_module, room_models_module, room_repo_module):
+    async def test_empty_room(self, room_db_module, room_models_module, room_player_repository_module):
         await _insert_room(room_db_module, room_models_module, room_id="r4", code="EMPT")
         async with room_db_module.SessionLocal() as db:
-            players = await room_repo_module.get_players_in_room(db, "r4")
+            players = await room_player_repository_module.get_players_in_room(db, "r4")
         assert players == []
 
 @pytest.mark.unit
 class TestCountPlayersInRoom:
     @pytest.mark.asyncio
-    async def test_count(self, room_db_module, room_models_module, room_repo_module):
+    async def test_count(self, room_db_module, room_models_module, room_player_repository_module):
         await _insert_room(room_db_module, room_models_module, room_id="r5", code="CNT1")
         await _insert_player(room_db_module, room_models_module, room_id="r5", player_id="p10", player_name="A", seat=1)
         await _insert_player(room_db_module, room_models_module, room_id="r5", player_id="p11", player_name="B", seat=2)
 
         async with room_db_module.SessionLocal() as db:
-            count = await room_repo_module.count_players_in_room(db, "r5")
+            count = await room_player_repository_module.count_players_in_room(db, "r5")
         assert count == 2
 
 @pytest.mark.unit
 class TestPlayerNameExistsInRoom:
     @pytest.mark.asyncio
-    async def test_duplicate(self, room_db_module, room_models_module, room_repo_module):
+    async def test_duplicate(self, room_db_module, room_models_module, room_player_repository_module):
         await _insert_room(room_db_module, room_models_module, room_id="r6", code="DUP1")
         await _insert_player(room_db_module, room_models_module, room_id="r6", player_id="p20", player_name="Dave", seat=1)
 
         async with room_db_module.SessionLocal() as db:
-            assert await room_repo_module.player_name_exists_in_room(db, "r6", "Dave") is True
+            assert await room_player_repository_module.player_name_exists_in_room(db, "r6", "Dave") is True
 
     @pytest.mark.asyncio
-    async def test_no_duplicate(self, room_db_module, room_models_module, room_repo_module):
+    async def test_no_duplicate(self, room_db_module, room_models_module, room_player_repository_module):
         await _insert_room(room_db_module, room_models_module, room_id="r7", code="DUP2")
 
         async with room_db_module.SessionLocal() as db:
-            assert await room_repo_module.player_name_exists_in_room(db, "r7", "Eve") is False
+            assert await room_player_repository_module.player_name_exists_in_room(db, "r7", "Eve") is False
 
 @pytest.mark.unit
 class TestSeatNumberExistsInRoom:
     @pytest.mark.asyncio
-    async def test_seat_exists(self, room_db_module, room_models_module, room_repo_module):
+    async def test_seat_exists(self, room_db_module, room_models_module, room_player_repository_module):
         await _insert_room(room_db_module, room_models_module, room_id="r8", code="SEA1")
         await _insert_player(room_db_module, room_models_module, room_id="r8", player_id="p30", player_name="Ana", seat=2)
 
         async with room_db_module.SessionLocal() as db:
-            assert await room_repo_module.seat_number_exists_in_room(db, "r8", 2) is True
-            assert await room_repo_module.seat_number_exists_in_room(db, "r8", 1) is False
+            assert await room_player_repository_module.seat_number_exists_in_room(db, "r8", 2) is True
+            assert await room_player_repository_module.seat_number_exists_in_room(db, "r8", 1) is False
 
 @pytest.mark.unit
 class TestRoomCommandSeatManagement:
     @pytest.mark.asyncio
-    async def test_join_room_with_requested_seat(self, room_db_module, room_models_module, room_command_module, room_schema_module):
+    async def test_join_room_with_requested_seat(self, room_db_module, room_models_module, room_player_command_module, room_schema_module):
         await _insert_room(room_db_module, room_models_module, room_id="r9", code="J001")
 
         async with room_db_module.SessionLocal() as db:
-            svc = room_command_module.RoomCommandService(db)
+            svc = room_player_command_module.RoomPlayerCommandService(db)
             response = await svc.join_room_by_code(
                 "J001",
                 room_schema_module.JoinRoom(player_name="Seat Four", seat_number=4),
@@ -213,14 +225,14 @@ class TestRoomCommandSeatManagement:
         assert response.seat_number == 4
 
     @pytest.mark.asyncio
-    async def test_join_room_rejects_taken_seat(self, room_db_module, room_models_module, room_command_module, room_schema_module):
+    async def test_join_room_rejects_taken_seat(self, room_db_module, room_models_module, room_player_command_module, room_schema_module):
         from fastapi import HTTPException
 
         await _insert_room(room_db_module, room_models_module, room_id="r10", code="J002")
         await _insert_player(room_db_module, room_models_module, room_id="r10", player_id="p40", player_name="Taken", seat=2)
 
         async with room_db_module.SessionLocal() as db:
-            svc = room_command_module.RoomCommandService(db)
+            svc = room_player_command_module.RoomPlayerCommandService(db)
             with pytest.raises(HTTPException) as exc:
                 await svc.join_room_by_code(
                     "J002",
