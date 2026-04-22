@@ -171,6 +171,7 @@ class RoomSnapshot(Base):
     game_id = Column(String, ForeignKey("games.game_id", ondelete="CASCADE"), unique=True, nullable=False, index=True)
     room_id = Column(String, nullable=False)
     starting_dealer_seat = Column(Integer, nullable=False, default=1)
+    antes_enabled = Column(Boolean, nullable=False, default=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
 class RoomSnapshotPlayer(Base):

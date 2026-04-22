@@ -21,9 +21,11 @@ async def fetch_room_config_http(room_id: str) -> RoomConfig:
         resp.raise_for_status()
 
     data = resp.json()
+    room_data = data.get("room", {})
     return RoomConfig(
         room_id=room_id,
         starting_dealer_seat=data.get("starting_dealer_seat", 1),
+        antes_enabled=bool(room_data.get("antes_enabled", False)),
         players=[
             PlayerConfig(
                 player_id=p["player_id"],
@@ -51,6 +53,7 @@ async def save_room_snapshot(db: AsyncSession, game_id: str, config: RoomConfig)
         game_id=game_id,
         room_id=config.room_id,
         starting_dealer_seat=config.starting_dealer_seat,
+        antes_enabled=config.antes_enabled,
     ))
     for p in config.players:
         db.add(RoomSnapshotPlayer(
@@ -114,6 +117,7 @@ async def load_room_snapshot(db: AsyncSession, game_id: str) -> RoomConfig:
     return RoomConfig(
         room_id=snap.room_id,
         starting_dealer_seat=snap.starting_dealer_seat,
+        antes_enabled=bool(snap.antes_enabled),
         players=players,
         blind_levels=blind_levels,
     )

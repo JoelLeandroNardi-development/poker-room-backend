@@ -2,731 +2,954 @@
 
 [![Tests](https://github.com/JoelLeandroNardi-development/poker-room-backend/actions/workflows/tests.yml/badge.svg)](https://github.com/JoelLeandroNardi-development/poker-room-backend/actions/workflows/tests.yml)
 
-Backend written in Python and mounted on top of Docker to manage a poker game room with rules, turns, bets — a mathematical engine for Texas Hold'em. Designed to connect to a frontend app.
+Backend for a poker room tracker. The project is a Python/FastAPI microservice system for creating poker rooms, registering players, configuring blind levels and antes, starting games, running Texas Hold'em betting rounds, rotating dealer/SB/BB positions, tracking player actions, calculating pots, settling hands, and exposing state for a future frontend.
+
+The backend is API-only. It is designed to sit behind the gateway service and connect to a frontend that lets each player join a room and submit their own actions.
+
+---
+
+## Current State
+
+The codebase currently supports:
+
+- Auth registration/login/refresh/logout with JWTs and refresh-token persistence.
+- Auth-user administration: list, fetch by id/email, update password/roles, delete.
+- User profile CRUD by email.
+- Room creation with join code, max players, starting chips, ante setting, and creator id.
+- Player joining by room code with optional explicit seat selection.
+- Seat reordering for waiting rooms.
+- Blind structure setup: level number, small blind, big blind, ante, duration minutes, starting dealer seat.
+- Player chip updates and elimination.
+- Game start from a room snapshot.
+- Automatic dealer, small blind, and big blind assignment and rotation.
+- Round creation with blind and ante posting.
+- Betting actions: fold, check, call, bet, raise, all-in.
+- Optimistic concurrency through `expected_version` and `state_version`.
+- Optional idempotency keys for bet submission.
+- Side-pot calculation and payout validation.
+- Hand resolution, single-winner shortcut, payout recording, and immutable hand ledger.
+- Dealer corrections: reverse action, adjust stack, reopen hand, correct payout.
+- Hand replay, hand-state rebuilding, consistency checks, settlement explanation, and action timeline.
+- Table runtime state: pause/resume, duration-based blind clock, session status.
+- Password reset token request and reset flow.
+- Gateway WebSocket endpoint for periodic table-state snapshots.
+- Gateway proxy over all main public routes.
+- Docker Compose environment with PostgreSQL and RabbitMQ.
+
+Remaining limitations:
+
+- There is no poker hand evaluator yet. The backend tracks betting/settlement but does not decide that a flush beats a straight.
+- WebSocket table-state support currently pushes periodic snapshots from the gateway. It is not yet event-driven from RabbitMQ/outbox messages.
+- Password reset currently returns a `debug_token` from the API. A production email delivery flow is not implemented yet.
 
 ---
 
 ## Architecture
 
-| Service | Port | Description |
-|---|---|---|
-| **gateway-service** | 8000 | Public HTTP façade – proxies all requests via persistent connection-pooled clients |
-| **auth-service** | 8004 | Registration, login, JWT tokens, session management |
-| **user-service** | 8005 | User profiles (display name, personal info) |
-| **room-service** | 8001 | Room creation, join codes, player management, blind structures |
-| **game-service** | 8002 | Full poker engine – game lifecycle, rounds, betting, side pots, settlement, hand ledger |
+| Service | External port | Internal port | Responsibility |
+|---|---:|---:|---|
+| `gateway-service` | 8000 | 8000 | Public HTTP facade. Proxies requests to service clients and adds `X-Correlation-ID`. |
+| `room-service` | 8001 | 8000 | Room lifecycle, join codes, players, chips, blind structures. |
+| `game-service` | 8002 | 8000 | Poker engine, games, rounds, betting, settlement, table runtime, analysis. |
+| `auth-service` | 8004 | 8000 | Registration, login, JWT access/refresh tokens, auth-user management. |
+| `user-service` | 8005 | 8000 | User profile CRUD. |
+| `postgres` | 5432 | 5432 | PostgreSQL 15, one database per service via `init-databases.sql`. |
+| `rabbitmq` | 5672, 15672 | 5672, 15672 | RabbitMQ 3 management image for domain events and outbox publishing. |
 
-**Infrastructure:** PostgreSQL 15 · RabbitMQ 3 (topic exchange) · Docker Compose
+### Main Patterns
 
-### Key patterns
-
-- **CQRS** – command / query separation per service
-- **Outbox pattern** – reliable event publishing to RabbitMQ
-- **Shared package** – cross-cutting DB, messaging, and schema helpers in `shared/`
-- **Atomic transactions** – round settlement wrapped in DB transactions with outbox writes
-- **Side-pot calculator** – handles all-in scenarios with multiple pots and multi-winner splitting
-- **Room snapshot adapter** – room config captured at game start; mid-hand operations use local snapshot (no live HTTP calls)
-- **Unified action pipeline** – `transition_hand_state()` is a **pure** domain function that returns a structured `HandTransition`; `apply_action()` is a thin ORM adapter that writes the diff
-- **Domain exceptions** – pure domain error hierarchy; HTTP status codes mapped only at the API boundary
-- **Ledger mirroring** – every state mutation (blinds, bets, payouts) writes an immutable `HandLedgerEntry`
-- **DB invariants** – ForeignKey, UniqueConstraint, CheckConstraint (including enum value constraints), and Index on all game-service models
-- **Anti-corruption layer** – `RoomConfigProvider` protocol + `HttpRoomConfigProvider` implementation; room-service data translated into game-native DTOs
+- CQRS-style application layer: separate command and query services.
+- Shared package for schemas, DB helpers, messaging, outbox helpers, and auth roles.
+- Outbox pattern for service events.
+- Async SQLAlchemy 2 sessions and Alembic migrations per service.
+- Domain-heavy game engine: core poker rules are implemented as pure functions where possible.
+- Immutable hand ledger plus mutable round projection.
+- Room snapshot anti-corruption layer: game-service snapshots room-service data at game start.
+- Gateway routes use shared Pydantic schemas and service clients instead of reimplementing business logic.
 
 ---
 
-## Poker engine (game-service)
+## Typical Poker Room Flow
 
-The game-service owns the complete Texas Hold'em lifecycle. Every module is a pure domain function — no ORM, no HTTP, no side effects — except for the thin infrastructure layer that persists state.
+1. Create a room:
 
-### Data model roles
+```http
+POST /rooms
+```
 
-Every table in game-service has a clearly defined role. This prevents drift when adding features:
+Payload:
+
+```json
+{
+  "name": "Friday poker",
+  "max_players": 6,
+  "starting_chips": 1000,
+  "antes_enabled": true,
+  "created_by": "joel"
+}
+```
+
+2. Players join by code:
+
+```http
+POST /rooms/join/{code}
+```
+
+Payload:
+
+```json
+{ "player_name": "Joel", "seat_number": 1 }
+```
+
+`seat_number` is optional. If omitted, the room assigns the next available seat number. Waiting rooms can also be reordered with `PUT /rooms/{room_id}/seats`.
+
+3. Set blind structure and starting dealer:
+
+```http
+PUT /rooms/{room_id}/blinds
+```
+
+Payload:
+
+```json
+{
+  "starting_dealer_seat": 1,
+  "levels": [
+    { "level": 1, "small_blind": 5, "big_blind": 10, "ante": 0, "duration_minutes": 15 },
+    { "level": 2, "small_blind": 10, "big_blind": 20, "ante": 2, "duration_minutes": 15 }
+  ]
+}
+```
+
+4. Start game:
+
+```http
+POST /games
+```
+
+Payload:
+
+```json
+{ "room_id": "..." }
+```
+
+Game-service fetches the room details from room-service and stores a local snapshot.
+
+5. Start a round:
+
+```http
+POST /games/{game_id}/rounds
+```
+
+The round is created from the room snapshot. Blinds and antes are posted automatically, the first actor is set, and ledger entries are written.
+
+6. Each player submits actions:
+
+```http
+POST /bets
+```
+
+Payload:
+
+```json
+{
+  "round_id": "...",
+  "player_id": "...",
+  "action": "CALL",
+  "amount": 0,
+  "expected_version": 1,
+  "idempotency_key": "client-generated-key-001"
+}
+```
+
+Supported actions: `FOLD`, `CHECK`, `CALL`, `BET`, `RAISE`, `ALL_IN`.
+
+7. Frontend reads current table state:
+
+```http
+GET /rounds/{round_id}/table-state
+```
+
+This returns acting player, legal actions, call amount, pot, street, dealer/SB/BB seats, players, and `state_version`.
+
+8. Resolve the hand:
+
+```http
+POST /rounds/{round_id}/resolve
+```
+
+Payload:
+
+```json
+{
+  "payouts": [
+    {
+      "pot_index": 0,
+      "pot_type": "main",
+      "amount": 120,
+      "winners": [{ "player_id": "...", "amount": 120 }]
+    }
+  ]
+}
+```
+
+Submitted payouts are validated against the computed side-pot structure.
+
+---
+
+## Service Details
+
+### Auth Service
+
+Location: `services/auth-service`
+
+Owns credentials, password hashing, JWT access/refresh tokens, token rotation, logout, and auth-user administration.
+
+Main modules:
+
+| Path | Purpose |
+|---|---|
+| `app/api/routes.py` | FastAPI routes for auth and auth-user management. |
+| `app/application/commands/auth_command_service.py` | Register, login, refresh, logout. |
+| `app/application/commands/auth_user_command_service.py` | Update/delete auth users. |
+| `app/application/queries/auth_user_query_service.py` | List and fetch auth users. |
+| `app/infrastructure/password_hasher.py` | bcrypt hashing and verification. |
+| `app/infrastructure/token_service.py` | JWT and opaque refresh-token utilities. |
+| `app/domain/models.py` | Auth users, refresh tokens, password reset token model. |
+| `app/application/mappers.py` | Auth ORM model to response schema mapping. |
+
+Auth endpoints:
+
+| Method | Gateway path | Internal path | Description |
+|---|---|---|---|
+| POST | `/register` | `/register` | Register an auth user. |
+| POST | `/login` | `/login` | Login and receive access/refresh tokens. |
+| POST | `/refresh` | `/refresh` | Rotate refresh token and issue fresh pair. |
+| POST | `/logout` | `/logout` | Revoke a refresh token. |
+| POST | `/forgot-password` | `/forgot-password` | Create a one-hour password reset token. Returns `debug_token` until email delivery exists. |
+| POST | `/reset-password` | `/reset-password` | Use a reset token to set a new password and revoke active sessions. |
+| GET | `/auth-users` | `/auth-users` | List auth users. |
+| GET | `/auth-users/{user_id}` | `/auth-users/{user_id}` | Fetch auth user by id. |
+| GET | `/auth-users/by-email/{email}` | `/auth-users/by-email/{email}` | Fetch auth user by email. |
+| PUT | `/auth-users/{user_id}` | `/auth-users/{user_id}` | Update password and/or roles. |
+| DELETE | `/auth-users/{user_id}` | `/auth-users/{user_id}` | Delete auth user. |
+
+Shared auth schemas:
+
+| Schema | Fields / purpose |
+|---|---|
+| `Register` | `email`, `password`, `roles`; roles are normalized with default `user`. |
+| `RegisterResponse` | `message`, `roles`. |
+| `Login` | `email`, `password`. |
+| `TokenPairResponse` | `access_token`, `refresh_token`, optional `expires_in`. |
+| `RefreshRequest` | `refresh_token`. |
+| `LogoutRequest` | `refresh_token`. |
+| `ForgotPasswordRequest` | `email`. |
+| `ResetPasswordRequest` | `token`, `new_password`. |
+| `AuthActionResponse` | `ok`, optional `debug_token`. |
+| `AuthUserResponse` | `id`, `email`, `roles`, `last_login_at`. |
+| `UpdateAuthUser` | Optional `password`, optional normalized `roles`. |
+| `DeleteAuthUserResponse` | `message`, `user_id`. |
+
+### User Service
+
+Location: `services/user-service`
+
+Owns public user profile information separate from credentials.
+
+Main modules:
+
+| Path | Purpose |
+|---|---|
+| `app/api/routes.py` | User profile endpoints. |
+| `app/application/commands/user_command_service.py` | Create, update, delete users. |
+| `app/application/queries/user_query_service.py` | List and fetch users. |
+| `app/domain/models.py` | User profile persistence model. |
+| `app/application/mappers.py` | ORM model to `UserResponse`. |
+
+User endpoints:
+
+| Method | Gateway path | Internal path | Description |
+|---|---|---|---|
+| GET | `/users` | `/users` | List users with `limit` and `offset`. |
+| GET | `/users/{email}` | `/users/{email}` | Fetch a user by email. |
+| POST | `/users` | `/users` | Create a user profile. |
+| PUT | `/users/{email}` | `/users/{email}` | Partial profile update. |
+| DELETE | `/users/{email}` | `/users/{email}` | Delete a profile. |
+
+Shared user schemas:
+
+| Schema | Fields / purpose |
+|---|---|
+| `CreateUser` | `email`, optional `display_name`, `first_name`, `last_name`. |
+| `UpdateUser` | Optional `display_name`, `first_name`, `last_name`. |
+| `UserResponse` | `email`, display/personal fields, `created_at`. |
+| `DeleteUserResponse` | `message`, `email`. |
+
+### Room Service
+
+Location: `services/room-service`
+
+Owns room setup and player seating/chip metadata before the game-service snapshots it.
+
+Main modules:
+
+| Path | Purpose |
+|---|---|
+| `app/api/routes.py` | Room, player, blind endpoints. |
+| `app/application/commands/room_command_service.py` | Create room, join, set blinds, update chips, eliminate player, delete room. |
+| `app/application/queries/room_query_service.py` | Room/player reads. |
+| `app/application/mappers.py` | Response mappers, including `room_detail_to_response`. |
+| `app/infrastructure/repository.py` | Code generation and room/player/blind queries. |
+| `app/domain/models.py` | `Room`, `RoomPlayer`, `BlindLevel`. |
+| `app/domain/events.py` | Room event builder. |
+| `app/infrastructure/outbox_worker.py` | Outbox publishing loop. |
+
+Room endpoints:
+
+| Method | Gateway path | Internal path | Description |
+|---|---|---|---|
+| POST | `/rooms` | `/rooms` | Create a room. |
+| GET | `/rooms` | `/rooms` | List rooms with `limit`, `offset`, optional `status`. |
+| GET | `/rooms/{room_id}` | `/rooms/{room_id}` | Get room detail: room, players, blind levels. |
+| GET | `/rooms/code/{code}` | `/rooms/code/{code}` | Get room detail by join code. |
+| POST | `/rooms/join/{code}` | `/rooms/join/{code}` | Join a waiting room by code. |
+| PUT | `/rooms/{room_id}/blinds` | `/rooms/{room_id}/blinds` | Replace blind structure and starting dealer seat. |
+| PUT | `/rooms/{room_id}/seats` | `/rooms/{room_id}/seats` | Reassign player seats while room is waiting. |
+| DELETE | `/rooms/{room_id}` | `/rooms/{room_id}` | Delete room plus room players/blinds. |
+| GET | `/players/{player_id}` | `/players/{player_id}` | Fetch room player. |
+| PUT | `/players/{player_id}/chips` | `/players/{player_id}/chips` | Update player chip count. |
+| POST | `/players/{player_id}/eliminate` | `/players/{player_id}/eliminate` | Mark player eliminated and set chips to zero. |
+
+Room schemas:
+
+| Schema | Fields / purpose |
+|---|---|
+| `CreateRoom` | Optional `name`, `max_players` 2-10, `starting_chips`, `antes_enabled`, `created_by`. |
+| `JoinRoom` | `player_name`, optional `seat_number`. |
+| `SeatAssignment` | `player_id`, `seat_number`. |
+| `ReorderSeats` | List of `SeatAssignment` entries. |
+| `BlindLevelInput` | `level`, `small_blind`, `big_blind`, `ante`, `duration_minutes`. |
+| `SetBlindStructure` | `levels`, `starting_dealer_seat`. |
+| `RoomResponse` | Room identity, code, name, status, max players, starting chips, ante flag, creator, created time. |
+| `RoomPlayerResponse` | Player id, room id, name, seat number, chip count, active/eliminated flags, joined time. |
+| `BlindLevelResponse` | Blind level fields. |
+| `RoomDetailResponse` | Room response plus ordered players, blind levels, starting dealer seat. |
+| `UpdateChips` | `chip_count`. |
+| `DeleteRoomResponse` | `message`, `room_id`. |
+
+Room behavior notes:
+
+- New rooms start in `WAITING` status.
+- Join codes are uppercase alphanumeric codes generated with `secrets.choice`.
+- Players can join only while the room is waiting.
+- Duplicate player names in the same room are rejected.
+- If no requested seat is supplied, seats use `max(seat_number) + 1`.
+- Requested seats and reordered seats must be within room capacity and unique.
+- Blind structures can be replaced only while the room is waiting.
+
+### Game Service
+
+Location: `services/game-service`
+
+Owns the poker engine, game lifecycle, round state, betting, settlement, ledger, replay, and table runtime.
+
+Main application modules:
+
+| Path | Purpose |
+|---|---|
+| `app/api/routes.py` | Game, round, bet, correction, analysis, table runtime endpoints. |
+| `app/application/commands/game_command_service.py` | Start game/round, resolve hand, advance street/blinds, declare winner, end game. |
+| `app/application/commands/bet_command_service.py` | Place a bet through validation, action pipeline, CAS, idempotency. |
+| `app/application/commands/correction_command_service.py` | Reverse action, adjust stack, reopen hand, correct payout. |
+| `app/application/commands/table_runtime_command_service.py` | Pause/resume, record hand completion, session status. |
+| `app/application/queries/game_query_service.py` | Game/round reads, replay, timeline, settlement explanation, consistency, table state. |
+| `app/application/queries/bet_query_service.py` | Bet list, pot, player bet summaries. |
+| `app/application/action_helpers.py` | Helpers to write `Bet`, `HandLedgerEntry`, and outbox events. |
+| `app/application/mappers.py` | ORM/domain objects to shared response schemas. |
+
+Game endpoints:
+
+| Method | Gateway path | Internal path | Description |
+|---|---|---|---|
+| POST | `/games` | `/games` | Start a game for a room. |
+| GET | `/games/{game_id}` | `/games/{game_id}` | Fetch game details. |
+| GET | `/games/room/{room_id}` | `/games/room/{room_id}` | Fetch active game for a room. |
+| POST | `/games/{game_id}/rounds` | `/games/{game_id}/rounds` | Start a new round/hand. |
+| GET | `/games/{game_id}/rounds` | `/games/{game_id}/rounds` | List game rounds. |
+| GET | `/games/{game_id}/rounds/active` | `/games/{game_id}/rounds/active` | Fetch active round. |
+| POST | `/games/{game_id}/advance-blinds` | `/games/{game_id}/advance-blinds` | Move to next configured blind level. |
+| POST | `/games/{game_id}/end` | `/games/{game_id}/end` | Mark game as finished. |
+| POST | `/games/{game_id}/pause` | `/games/{game_id}/pause` | Pause table runtime. Internal route only currently; not exposed by gateway route file. |
+| POST | `/games/{game_id}/resume` | `/games/{game_id}/resume` | Resume table runtime. Internal route only currently; not exposed by gateway route file. |
+| POST | `/games/{game_id}/record-hand-completed` | `/games/{game_id}/record-hand-completed` | Increment hand/blind-clock counters. Internal route only currently; not exposed by gateway route file. |
+| GET | `/games/{game_id}/session-status` | `/games/{game_id}/session-status` | Read table runtime status. Internal route only currently; not exposed by gateway route file. |
+
+Round endpoints:
+
+| Method | Gateway path | Internal path | Description |
+|---|---|---|---|
+| GET | `/rounds/{round_id}` | `/rounds/{round_id}` | Fetch round details. |
+| POST | `/rounds/{round_id}/resolve` | `/rounds/{round_id}/resolve` | Resolve hand with pot payouts. |
+| POST | `/rounds/{round_id}/advance-street` | `/rounds/{round_id}/advance-street` | Move from preflop/flop/turn/river or mark showdown/settle. |
+| POST | `/rounds/{round_id}/winner` | `/rounds/{round_id}/winner` | Shortcut to award full pot to one winner. |
+| GET | `/rounds/{round_id}/ledger` | `/rounds/{round_id}/ledger` | Return immutable ledger entries. |
+| GET | `/rounds/{round_id}/hand-state` | `/rounds/{round_id}/hand-state` | Rebuild hand state from ledger. |
+| GET | `/rounds/{round_id}/replay` | `/rounds/{round_id}/replay` | Step-by-step replay snapshots. |
+| GET | `/rounds/{round_id}/timeline` | `/rounds/{round_id}/timeline` | Per-street action timeline. |
+| GET | `/rounds/{round_id}/settlement-explanation` | `/rounds/{round_id}/settlement-explanation` | Pot breakdown and narrative. |
+| GET | `/rounds/{round_id}/consistency-check` | `/rounds/{round_id}/consistency-check` | Compare live projection against ledger replay. |
+| GET | `/rounds/{round_id}/table-state` | `/rounds/{round_id}/table-state` | Frontend-oriented authoritative state. |
+| WS | `/rounds/{round_id}/table-state/ws` | N/A | Gateway WebSocket that pushes periodic table-state snapshots. Optional `interval` query parameter, clamped to 0.25-10 seconds. |
+
+Bet endpoints:
+
+| Method | Gateway path | Internal path | Description |
+|---|---|---|---|
+| POST | `/bets` | `/bets` | Submit a betting action. |
+| GET | `/bets/round/{round_id}` | `/bets/round/{round_id}` | List bets for a round. |
+| GET | `/bets/round/{round_id}/pot` | `/bets/round/{round_id}/pot` | Read pot total and bets. |
+| GET | `/bets/round/{round_id}/players` | `/bets/round/{round_id}/players` | Per-player bet summary. |
+
+Correction endpoints:
+
+| Method | Gateway path | Internal path | Description |
+|---|---|---|---|
+| POST | `/rounds/{round_id}/corrections/reverse-action` | Same | Reverse a ledger entry and project it into live state. |
+| POST | `/rounds/{round_id}/corrections/adjust-stack` | Same | Adjust a player's stack by delta. |
+| POST | `/rounds/{round_id}/corrections/reopen-hand` | Same | Reopen a completed hand. |
+| POST | `/rounds/{round_id}/corrections/correct-payout` | Same | Move payout amount from old winner to new winner. |
+
+Game schemas:
+
+| Schema | Fields / purpose |
+|---|---|
+| `StartGame` | `room_id`. |
+| `GameResponse` | Game id, room id, status, blind level, level start, dealer/SB/BB seats, hand counters, created time. |
+| `RoundResponse` | Round id, game id, number, dealer/SB/BB, blind amounts, ante, status, pot, street, actor, highest bet, min raise, action closed, players, payouts, timestamps. |
+| `RoundPlayerResponse` | Player id, seat, remaining stack, street/hand commitments, folded/all-in/active flags. |
+| `PlaceBet` | `round_id`, `player_id`, `action`, `amount`, optional `idempotency_key`, optional `expected_version`. |
+| `BetResponse` | Bet id, round id, player id, action, amount, created time. |
+| `ResolveHandRequest` | List of pot payouts. |
+| `PotPayout` | `pot_index`, `pot_type`, `amount`, list of winner shares. |
+| `WinnerShare` | `player_id`, `amount`. |
+| `ResolveHandResponse` | Round id, status, pot amount, payout list. |
+| `DeclareWinner` | `winner_player_id`. |
+| `AdvanceStreetResponse` | Street advance action, round/game ids, street, acting player, bet state, winner if settled, players. |
+| `LedgerEntryResponse` | Entry id, round id, type, player, amount, detail, original entry, dealer, created time. |
+| `HandStateResponse` | Ledger-rebuilt state: pot, completion flags, reversed ids, payout corrections, player snapshots. |
+| `ReplayResponse` | Replay steps and consistency flag. |
+| `TimelineResponse` | Streets, payouts, corrections. |
+| `SettlementExplanationResponse` | Pot explanations and narrative lines. |
+| `ConsistencyCheckResponse` | Boolean and discrepancy list. |
+| `TableStateResponse` | Frontend table state with legal actions and `state_version`. |
+| `SessionStatusResponse` | Table runtime counters, current blind information, and optional `seconds_until_blind_advance`. |
+
+---
+
+## Game Engine Reference
+
+### Data Model Roles
 
 | Table | Role | Description |
 |---|---|---|
-| **Game** | Authoritative | Current game lifecycle state (status, blind level, dealer positions) |
-| **Round** + **RoundPlayer** | Authoritative projection | Mutable snapshot of the current hand. Updated in-place by each action via `apply_action()`. Single source of truth for "where is the hand right now?" |
-| **HandLedgerEntry** | Immutable audit trail | Append-only log of every state change (blinds, bets, payouts, corrections). Never updated or deleted. Can rebuild hand state from scratch via `rebuild_hand_state()` |
-| **Bet** | Action read model | Denormalized record of each betting action for query convenience. Redundant with the ledger — kept for backward compatibility and fast per-round action history queries |
-| **RoundPayout** | Settlement record | Records chip distribution at hand resolution. Authoritative for "who won what" alongside the ledger |
-| **RoomSnapshot** / **RoomSnapshotPlayer** / **RoomSnapshotBlindLevel** | Anti-corruption snapshot | Local copy of room-service data captured at game start. Insulates the hand engine from external service availability |
+| `Game` | Authoritative game lifecycle | Active/paused/finished state, current blind level, level start, current dealer/SB/BB seats, hand counters. |
+| `Round` | Mutable hand projection | Current street, pot, acting player, highest bet, min raise, completion flags, version fields. |
+| `RoundPlayer` | Mutable player hand projection | Stack remaining, committed chips, fold/all-in/active status. |
+| `HandLedgerEntry` | Immutable audit trail | Append-only record for blinds, antes, bets, payouts, corrections, and completion. |
+| `Bet` | Read model | Denormalized action history for query convenience and backward compatibility. |
+| `RoundPayout` | Settlement record | Records who received chips from each pot. |
+| `RoomSnapshot` | Anti-corruption snapshot | Room metadata copied at game start. |
+| `RoomSnapshotPlayer` | Snapshot player rows | Player id, name, seat, chips, active/eliminated flags. |
+| `RoomSnapshotBlindLevel` | Snapshot blind rows | Level, SB, BB, ante, duration. |
 
-> **Rule:** `Round` + `RoundPlayer` is what the engine reads during play.
-> `HandLedgerEntry` is what you replay for audits and corrections.
-> `Bet` may eventually be removed if the ledger fully covers query needs.
+Rule of thumb:
 
-### Engine capabilities
+- `Round` + `RoundPlayer` answer "what is happening right now?"
+- `HandLedgerEntry` answers "what happened, exactly, in order?"
+- `Bet` supports quick action-history queries but overlaps with ledger data.
+- `RoomSnapshot*` isolates game play from room-service availability after game start.
 
-- **Round management** – create rounds, track street progression (preflop → flop → turn → river → showdown)
-- **Dealer & blinds** – automatic dealer button rotation, small/big blind + ante posting
-- **Turn engine** – per-action turn advancement with fold/check/call/raise/all-in validation
-- **Bet validator** – enforces min-raise, pot-limit, and no-limit rules
-- **Side-pot calculator** – splits pots correctly when players are all-in at different stack levels
-- **Settlement** – atomic multi-winner settlement with chip distribution and hand ledger recording
-- **Payout validation** – submitted payouts validated against computed side-pot structure (eligible winners + amounts)
-- **Dealer corrections** – projection-safe: reverse action, adjust stack, reopen hand, correct payout (all mirror to ledger + mutable state)
-- **Hand replay engine** – pure `replay_hand()` rebuilds step-by-step hand state from ledger entries using O(n) incremental replay; `verify_consistency()` compares replayed vs live state for determinism proof
-- **Settlement explainer** – `explain_settlement()` produces structured pot breakdown with contributor/eligibility/winner details and human-readable narrative
-- **Hand history timeline** – `build_hand_timeline()` reconstructs per-street action timeline with running pot totals, payouts, and corrections
-- **Scenario runner** – declarative DSL for scripting full hand scenarios using real blind posting engine (setup → blinds → actions → expectations) with automatic verification
-- **Rules profile** – `RulesProfile` dataclass encodes poker variant rules; `NO_LIMIT_HOLDEM` pre-built profile parameterizes validator, action pipeline, and round creation
-- **Engine versioning** – `engine_version` + `state_version` columns on Round for version tracking and optimistic concurrency
-- **Optimistic concurrency** – `state_version` compare-and-swap guard in `apply_action()` with `StaleStateError`; prevents stale-read race conditions
-- **Idempotency** – optional `idempotency_key` on bet commands; duplicate submissions return the original response instead of double-applying
-- **Table runtime** – pure state machine for multi-hand session lifecycle: seat management, sit-out/sit-in, blind clock, pause/resume
-- **Frontend table-state contract** – `GET /rounds/{id}/table-state` returns authoritative state with legal actions, pot, acting player, and `state_version`
+### Domain Modules
 
----
+#### `domain/engine/positions.py`
 
-## Module reference
-
-### Domain layer (`game-service/app/domain/`)
-
-#### `action_pipeline.py` — Unified hand state transitions
-
-The central pipeline for processing any player action. Contains both pure state-transition logic and the ORM adapter that persists the diff.
-
-**Dataclasses:**
-
-| Class | Description |
-|---|---|
-| `PlayerMutation` | Per-player state diff: stack delta, street/hand commit deltas, fold/all-in flags |
-| `RoundMutation` | Round-level state diff: pot delta, new highest bet, new min raise, next acting player, aggressor seat, action-closed flag |
-| `HandTransition` | Complete result of a hand action: the resolved action + amount, whether the round closed, next player, player mutation, round mutation |
-| `ApplyActionResult` | Simplified return value from `apply_action()` for the API layer |
-
-**Functions:**
-
-| Function | Signature | Description |
-|---|---|---|
-| `transition_hand_state` | `(ctx: HandContext, player_id, action, amount, last_aggressor_seat, rules) → HandTransition` | **Pure function.** Takes an immutable `HandContext` and action parameters, validates via `validate_bet()`, computes all state mutations (stack deltas, pot changes, next-to-act via `next_to_act()`), and returns a structured `HandTransition`. No side effects — no DB, no ORM |
-| `apply_action` | `(round, players, player_id, action, amount) → ApplyActionResult` | Thin ORM adapter. Builds a `HandContext` from live `Round`/`RoundPlayer` models, calls `transition_hand_state()`, then writes the resulting `PlayerMutation` and `RoundMutation` back onto the ORM objects. Increments `state_version` |
-
----
-
-#### `validator.py` — Bet validation engine
-
-Enforces all betting rules for Texas Hold'em. Every action passes through `validate_bet()` before any state mutation.
-
-**Dataclasses:**
-
-| Class | Description |
-|---|---|
-| `PlayerState` | Frozen snapshot of one player's state: stack, commitments (street + hand), fold/all-in/active flags, seat number |
-| `HandContext` | Frozen snapshot of the hand state: round ID, status, street, acting player, highest bet, minimum raise, action-closed flag, player list. Has `get_player(player_id)` helper |
-| `ValidatedAction` | Result: the resolved action string and effective amount |
-
-**Function:** `validate_bet(ctx, player_id, action, amount, rules) → ValidatedAction`
-
-Validation logic flow:
-1. Round must be `ACTIVE` status
-2. Betting must not be closed for this street
-3. Player must be in the hand, not folded, not all-in
-4. Must be the player's turn (if `acting_player_id` is set)
-5. Action-specific rules:
-   - **FOLD** → always allowed, returns amount 0
-   - **CHECK** → only when `call_amount == 0` (no outstanding bet)
-   - **CALL** → only when there is something to call; auto-promotes to ALL_IN if call exceeds stack
-   - **BET** → only when no prior bet on this street; enforces minimum bet amount; auto-promotes to ALL_IN if bet equals full stack
-   - **RAISE** → only when prior bet exists; validates raise increment against minimum raise; the `amount` parameter is the total commitment (not just the increment); auto-promotes to ALL_IN if raise consumes full stack
-   - **ALL_IN** → commits entire remaining stack
-
----
-
-#### `turn_engine.py` — Turn rotation logic
-
-Determines who acts next after each action, and whether the betting round is closed.
-
-**Dataclasses:**
-
-| Class | Description |
-|---|---|
-| `ActionSeat` | Frozen snapshot of a player's seat state: player ID, seat number, folded/all-in/active flags, street commitment |
-| `NextActorResult` | Result: next player ID and seat (or `None`), and whether the round is closed |
-
-**Function:** `next_to_act(players, current_actor_seat, last_aggressor_seat, current_highest_bet) → NextActorResult`
-
-Algorithm:
-1. Filter to eligible players (active, not folded, not all-in)
-2. If fewer than 2 eligible → round is closed
-3. Sort by seat number, find the first seat after the current actor (wrapping around)
-4. Scan clockwise. If the candidate is the last aggressor → round is closed (everyone has acted since the last raise)
-5. If the candidate has committed less than the highest bet → that player acts next
-6. If no one needs action → round is closed
-
----
-
-#### `street_progression.py` — Street advancement logic
-
-Evaluates what happens when a betting round closes: advance to the next street, go to showdown, or settle the hand.
-
-**Constants:** `STREET_ORDER = (PRE_FLOP, FLOP, TURN, RIVER, SHOWDOWN)`
-
-**Dataclasses:**
-
-| Class | Description |
-|---|---|
-| `PlayerSeat` | Frozen snapshot: player ID, seat, folded/all-in/active flags |
-| `StreetAdvanceResult` | Result: action (NEXT_STREET / SETTLE_HAND / SHOWDOWN), optional next street, optional first-to-act player, optional winner |
-
-**Functions:**
+Pure dealer/SB/BB placement logic:
 
 | Function | Description |
 |---|---|
-| `next_street(current)` | Returns the next street in sequence, or `None` if at the end |
-| `find_first_to_act(eligible, reference_seat)` | Finds the first eligible player clockwise from the reference seat (used to set the first actor on a new street) |
-| `evaluate_street_end(current_street, dealer_seat, big_blind_seat, players)` | Main decision function: if ≤1 player remains → `SETTLE_HAND` with winner; if at river/showdown → `SHOWDOWN`; if ≤1 can act (rest all-in) → `SHOWDOWN`; otherwise → `NEXT_STREET` with the computed first-to-act |
+| `assign_positions(active_seats, starting_dealer)` | Assigns dealer, small blind, and big blind from active seats at game start. Heads-up dealer is also SB. |
+| `rotate_positions(active_seats, current_dealer)` | Moves dealer clockwise and derives SB/BB for the next hand. |
 
----
+`GameCommandService` keeps `_assign_positions` and `_rotate_positions` wrappers for compatibility with existing tests/callers, but the logic lives in the domain engine.
 
-#### `blind_posting.py` — Forced bet engine
+#### `domain/engine/blind_posting.py`
 
-Posts small blind, big blind, and antes for all players at the start of a round.
+Posts forced bets at round start.
 
-**Dataclasses:**
-
-| Class | Description |
+| Dataclass | Description |
 |---|---|
-| `SeatPlayer` | Input: player ID, seat number, starting stack |
-| `PostedPlayer` | Output per player: remaining stack, street/hand commitments, all-in flag |
-| `BlindPostingResult` | Complete result: list of posted players, pot total, current highest bet |
+| `SeatPlayer` | Input player id, seat, starting stack. |
+| `PostedPlayer` | Output stack and commitments after forced bets. |
+| `BlindPostingResult` | Posted players, pot total, current highest bet. |
 
-**Function:** `post_blinds_and_antes(players, small_blind_seat, big_blind_seat, small_blind_amount, big_blind_amount, ante_amount) → BlindPostingResult`
-
-For each player: deducts ante first (capped at remaining stack), then deducts SB or BB (capped at remaining stack). Sets `is_all_in = True` if remaining stack reaches 0 after posting. Returns the aggregate pot and highest bet.
-
----
-
-#### `side_pots.py` — Side-pot calculator
-
-Computes the correct pot structure when players are all-in at different stack levels.
-
-**Dataclasses:**
-
-| Class | Description |
-|---|---|
-| `PlayerContribution` | Input per player: player ID, total committed this hand, folded flag, reached-showdown flag |
-| `Pot` | Output per pot: index, amount, contributor IDs, eligible winner IDs |
-
-**Function:** `calculate_side_pots(players) → list[Pot]`
-
-Algorithm:
-1. Sort players by committed amount (ascending)
-2. For each commitment level, compute a pot slice: `(current_level - previous_level) × number_of_contributors`
-3. Mark contributors and eligible winners (not folded, reached showdown)
-4. Merge "dead pots" (pots with no eligible winners) into the next pot with eligible winners via `_merge_dead_pots()`
-5. Return indexed pots
-
----
-
-#### `hand_ledger.py` — Immutable event log and state rebuilder
-
-Append-only ledger that records every state change in a hand. Can rebuild the complete hand state from scratch.
-
-**Dataclasses:**
-
-| Class | Description |
-|---|---|
-| `LedgerRow` | Frozen input: entry ID, entry type, player ID, amount, detail dict, original entry ID (for reversals) |
-| `PlayerSnapshot` | Mutable per-player state: stack adjustment, total committed, total won, action-reversed flag |
-| `HandState` | Mutable aggregate state: player snapshots dict, pot total, completion/reopened flags, reversed entry IDs set, payout corrections list, entry count |
-
-**Functions:**
+Function:
 
 | Function | Description |
 |---|---|
-| `apply_entry(state, entry)` | Applies a single ledger entry to a `HandState`. Handles: `BLIND_POSTED`/`ANTE_POSTED`/`BET_PLACED` (add to pot + player committed), `PAYOUT_AWARDED` (add to player won), `ROUND_COMPLETED` (mark completed), `ACTION_REVERSED` (subtract from pot + committed, track reversed ID), `STACK_ADJUSTED` (adjust player stack), `HAND_REOPENED` (mark uncompleted + reopened), `PAYOUT_CORRECTED` (swap winner amounts) |
-| `rebuild_hand_state(entries)` | Creates a fresh `HandState` and applies all entries in order — full state reconstruction from the ledger |
+| `post_blinds_and_antes(...)` | Deducts antes first, then SB/BB, capped by stack; sets all-in when stack reaches zero. |
 
----
+#### `domain/engine/validator.py`
 
-#### `hand_replay.py` — Step-by-step hand replay
+Validates a single action before state mutation.
 
-Replays a hand from ledger entries, producing intermediate states at each step for debugging and auditing.
-
-**Dataclasses:**
-
-| Class | Description |
+| Dataclass | Description |
 |---|---|
-| `HandStep` | One step in the replay: step number, entry ID/type, player, amount, state snapshot after this step |
-| `ReplayResult` | Complete replay: list of steps, final state, entry count, consistency flag |
+| `PlayerState` | Frozen player state snapshot. |
+| `HandContext` | Frozen hand context, including players and acting player. |
+| `ValidatedAction` | Resolved action and effective amount. |
 
-**Functions:**
+Main function:
 
 | Function | Description |
 |---|---|
-| `replay_hand(entries)` | Iterates through ledger entries, calling `apply_entry()` for each and capturing a deep-copied `HandState` snapshot after each step. Returns the full step-by-step replay |
-| `verify_consistency(entries, live_pot_total, live_player_committed)` | Rebuilds state from entries and compares against live values. Returns a list of discrepancy strings (pot mismatch, player committed mismatch, missing players). Empty list = consistent |
+| `validate_bet(ctx, player_id, action, amount, rules)` | Enforces round status, action closure, turn order, fold/check/call/bet/raise/all-in semantics, stack limits, and min raise rules. |
 
----
+Validation behavior:
 
-#### `settlement_explainer.py` — Human-readable pot breakdown
+- `FOLD`: always allowed for an active actor, amount becomes 0.
+- `CHECK`: allowed only when call amount is 0.
+- `CALL`: allowed only when there is an outstanding amount; short calls become all-in.
+- `BET`: allowed only when no bet exists on the street.
+- `RAISE`: allowed only when a bet exists; `amount` is total street commitment, not just extra chips.
+- `ALL_IN`: commits full remaining stack.
 
-Produces a structured explanation of settlement with auto-generated narrative text.
+#### `domain/engine/turn_engine.py`
 
-**Dataclasses:**
+Determines who acts next.
 
-| Class | Description |
+| Dataclass | Description |
 |---|---|
-| `WinnerDetail` | Player ID + amount won |
-| `PotExplanation` | Per-pot breakdown: index, label ("Main Pot" / "Side Pot N"), amount, contributor IDs, eligible IDs, ineligibility reasons (folded, didn't reach showdown), winner details, awarded total, unclaimed remainder |
-| `SettlementExplanation` | Aggregate: total pot, total awarded, total unclaimed, list of pot explanations, narrative lines |
+| `ActionSeat` | Player id, seat, fold/all-in/active flags, street commitment. |
+| `NextActorResult` | Next player id/seat or round-closed result. |
 
-**Function:** `explain_settlement(contributions, submitted_payouts) → SettlementExplanation`
-
-1. Computes side pots via `calculate_side_pots()`
-2. Maps submitted payouts by pot index
-3. For each pot: identifies contributors, eligible/ineligible players (with reasons), winners, unclaimed amounts
-4. Generates human-readable narrative lines (e.g. "Main Pot: 300 chips from 3 contributors", "→ player_a wins 300 chips")
-
----
-
-#### `hand_history.py` — Per-street action timeline
-
-Reconstructs a complete hand timeline organized by street with running pot totals.
-
-**Dataclasses:**
-
-| Class | Description |
-|---|---|
-| `ActionEntry` | Single action: entry ID, player, action type, amount, running pot total |
-| `StreetSummary` | One street: name, list of actions, pot at start and end |
-| `PayoutEntry` | Payout record: entry ID, player, amount |
-| `CorrectionEntry` | Correction record: entry ID, type, player, amount, original entry ID, detail |
-| `HandTimeline` | Full timeline: round ID, streets list, payouts list, corrections list, completed/reopened flags, total entries |
-
-**Function:** `build_hand_timeline(round_id, entries) → HandTimeline`
-
-Processes entries in order. Tracks current street (starting at PRE_FLOP). On `STREET_DEALT` → finalize current street, start new one. Blind/bet entries → accumulate in current street with running pot. Payouts, completions, and corrections tracked separately. Action reversals subtract from the running pot.
-
----
-
-#### `payout_validation.py` — Side-pot payout verification
-
-Validates dealer-submitted payouts against the mathematically computed pot structure.
-
-**Function:** `validate_payouts_against_side_pots(round_players, submitted_payouts, total_pot) → list[Pot]`
-
-1. Builds `PlayerContribution` list from `RoundPlayer` data
-2. Computes expected side pots via `calculate_side_pots()`
-3. For each submitted payout: verifies the pot index exists, total doesn't exceed the computed pot amount, and every winner is in the eligible set
-4. Raises `PayoutMismatch` or `PayoutExceedsPot` on violations
-
----
-
-#### `scenario_runner.py` — Declarative hand scripting DSL
-
-Framework for scripting complete hand scenarios for testing. Uses the real blind posting engine.
-
-**Dataclasses:**
-
-| Class | Description |
-|---|---|
-| `PlayerSetup` | Player definition: ID, seat, starting stack |
-| `BlindSetup` | Blind structure: small, big, ante |
-| `ScriptedAction` | One action: player ID, action string, amount |
-| `Expectation` | Verification check: type (pot / action_closed / player_stack / player_folded / error) + args |
-| `ExpectationResult` | Check result: passed flag, expectation, failure message |
-| `HandScenario` | Full scenario: name, players, blinds, dealer seat, actions, expectations. Helper methods: `add_action()`, `expect_pot()`, `expect_action_closed()`, `expect_player_stack()`, `expect_player_folded()`, `expect_error()` |
-| `ScenarioResult` | Run result: scenario name, passed flag, actions applied count, expectation results list, error. `failures` property filters to failed expectations |
-
-**Function:** `run_scenario(scenario, apply_action_fn, Round, RoundPlayer) → ScenarioResult`
-
-1. Creates in-memory `Round` and `RoundPlayer` objects from the scenario definition
-2. Posts blinds using the real `post_blinds_and_antes()` engine (determines correct SB/BB seats clockwise from dealer)
-3. Executes each scripted action via the provided `apply_action_fn`, catching any exceptions
-4. Evaluates all expectations against the final state
-
----
-
-#### `rules.py` — Poker variant configuration
-
-Frozen `RulesProfile` dataclass encoding the rules for a poker variant. The validator, action pipeline, and round creation are all parameterized by this profile.
-
-**Fields:** `name`, `betting_structure` (no_limit), `forced_bets` (blinds), `min_players`, `max_players`, `streets` (tuple of street names), `min_raise_equals_last_raise`, `unlimited_raises`, `max_raises_per_street`, `all_in_reopens_action`, `dead_button_rule`, `engine_version`
-
-**Pre-built profile:** `NO_LIMIT_HOLDEM` — standard No-Limit Texas Hold'em with 2–10 players, 5 streets, unlimited raises, min raise = last raise, engine version `0.15.0`
-
----
-
-#### `table_runtime.py` — Multi-hand session state machine
-
-Pure domain state machine managing the lifecycle of a multi-hand poker session at a table.
-
-**Enums:** `SeatStatus` (ACTIVE / SITTING_OUT / EMPTY), `TableStatus` (WAITING / RUNNING / PAUSED / FINISHED)
-
-**Dataclasses:**
-
-| Class | Description |
-|---|---|
-| `TableSeat` | One seat: seat number, player ID, status, chip count, hands sat out counter |
-| `BlindClock` | Blind level tracker: current level, level start time, hands at current level. Methods: `should_advance(hands_per_level, seconds_per_level)` checks both hand-based and time-based advancement; `advance()` increments level + resets counters; `record_hand()` increments hand counter |
-| `TableRuntime` | Table state: game ID, status, seats list, blind clock, hands played, dealer seat. Properties: `active_seats` (ACTIVE with a player), `seated_count`. Methods: `can_start_hand()` (running + ≥2 active), `start_session()`, `pause_session()`, `resume_session()`, `finish_session()`, `sit_out(seat)`, `sit_in(seat)`, `record_hand_completed()` (increments counters, tracks sat-out hands), `next_hand_number()` |
-
----
-
-#### `room_adapter.py` — Anti-corruption layer protocol
-
-Defines the domain-side contract for room configuration, keeping the engine isolated from room-service details.
-
-**Dataclasses:** `PlayerConfig` (player ID, seat, chip count, active/eliminated flags), `BlindLevelConfig` (level, small/big blind, ante, duration), `RoomConfig` (room ID, starting dealer seat, players list, blind levels list, with `active_seats`, `active_players`, `blind_level(n)` helpers)
-
-**Protocol:** `RoomConfigProvider` — defines `fetch_live(room_id)`, `save_snapshot(game_id, config)`, `load_snapshot(game_id)` as the three operations the engine needs
-
----
-
-#### `constants.py` — Enumerations and sentinel values
-
-All string enumerations used across the game-service domain:
-
-| Enum | Values |
-|---|---|
-| `GameStatus` | WAITING, ACTIVE, PAUSED, FINISHED |
-| `RoundStatus` | ACTIVE, COMPLETED |
-| `Street` | PRE_FLOP, FLOP, TURN, RIVER, SHOWDOWN |
-| `StreetAdvanceAction` | NEXT_STREET, SETTLE_HAND, SHOWDOWN |
-| `LedgerEntryType` | BLIND_POSTED, ANTE_POSTED, BET_PLACED, STREET_DEALT, PAYOUT_AWARDED, ROUND_COMPLETED, ACTION_REVERSED, STACK_ADJUSTED, HAND_REOPENED, PAYOUT_CORRECTED |
-| `BetAction` | FOLD, CHECK, CALL, BET, RAISE, ALL_IN |
-| `GameEventType` | game.started, game.round_started, game.round_completed, game.street_advanced, game.blinds_increased, game.correction_applied, bet.placed, game.finished |
-| `ErrorMessage` | All user-facing error strings (GAME_NOT_FOUND, ROUND_NOT_ACTIVE, NOT_YOUR_TURN, etc.) |
-| `EventKey` / `DataKey` / `TableName` | JSON payload keys, table name constants |
-
----
-
-#### `exceptions.py` — Domain error hierarchy
-
-Pure exception hierarchy rooted at `DomainError(message)`. HTTP status codes are mapped only at the API boundary via `@exception_handler`.
-
-Exceptions: `RoundNotActive`, `ActionClosed`, `RoundNotCompleted`, `RoundAlreadyActive`, `AlreadyAtShowdown`, `PlayerNotInHand`, `PlayerAlreadyFolded`, `PlayerAlreadyAllIn`, `NotYourTurn`, `IllegalAction`, `CheckNotAllowed`, `CallNotAllowed`, `BetNotAllowed`, `RaiseNotAllowed`, `RaiseBelowMinimum`, `AmountExceedsStack`, `InvalidAmount`, `GameNotActive`, `GameAlreadyExists`, `NotFound`, `LedgerEntryNotFound`, `EntryAlreadyReversed`, `CannotReverseCorrection`, `PayoutExceedsPot`, `PayoutEmpty`, `PayoutMismatch`, `StaleStateError`, `DuplicateActionError`, `IdempotencyConflict`
-
----
-
-### Application layer (`game-service/app/application/`)
-
-#### Command services
-
-| Service | Responsibilities |
-|---|---|
-| `GameCommandService` | `start_game` (creates game + room snapshot + outbox event), `start_round` (posts blinds via blind engine, creates Round/RoundPlayer/ledger entries, assigns first-to-act), `resolve_hand` (validates payouts against side-pot structure, distributes chips, records ledger), `advance_street` (evaluates street end, progresses or settles), `declare_winner` (single-winner shortcut), `advance_blinds` (increments blind level from room snapshot), `end_game` (sets FINISHED status) |
-| `BetCommandService` | `place_bet` (finds active round, loads players, calls `apply_action()`, records bet + ledger + outbox via `record_bet_action()`, uses CAS update for optimistic concurrency, supports idempotency keys) |
-| `CorrectionCommandService` | `reverse_action` (reverses a ledger entry, projects reversal onto Round/RoundPlayer state), `adjust_stack` (delta stack adjustment for a player), `reopen_hand` (reopens a completed round), `correct_payout` (swaps a payout from one player to another). All corrections write a ledger entry and update the mutable projection |
-| `TableRuntimeCommandService` | `pause_table`, `resume_table`, `record_hand_completed`, `get_session_status` — manages table runtime state machine, persists to Game model |
-
-#### Action helpers (`action_helpers.py`)
-
-| Helper | Description |
-|---|---|
-| `record_bet_action(db, round_id, player_id, action, amount, game_id, room_id)` | Creates a `Bet` row + `HandLedgerEntry` + outbox event in one call |
-| `append_ledger_entry(db, round_id, entry_type, player_id, amount, detail, original_entry_id)` | Creates a single `HandLedgerEntry` with a generated UUID |
-
----
-
-### Infrastructure layer (`game-service/app/infrastructure/`)
-
-#### `repository.py` — Database access functions
-
-Pure async repository functions (no class, just functions accepting `AsyncSession`):
+Function:
 
 | Function | Description |
 |---|---|
-| `fetch_or_raise(db, model, filter_column, filter_value, detail)` | Generic single-row fetch with `NotFound` exception |
-| `get_active_game_for_room(db, room_id)` | Find the ACTIVE game for a room |
-| `get_latest_round(db, game_id)` | Latest round by round_number DESC |
-| `get_active_round(db, game_id)` | Find the ACTIVE round for a game |
-| `count_rounds(db, game_id)` | Count of rounds in a game |
-| `get_rounds_for_game(db, game_id)` | All rounds ordered by round_number |
-| `get_round_players(db, round_id)` | All players in a round ordered by seat |
-| `get_round_payouts(db, round_id)` | Payouts ordered by pot_index |
-| `get_ledger_entries(db, round_id)` | All ledger entries ordered by ID |
-| `get_ledger_entry_by_id(db, entry_id)` | Single ledger entry by entry_id |
-| `get_bets_for_round(db, round_id)` | All bets ordered by created_at |
-| `get_pot_total(db, round_id)` | Sum of bet amounts for a round |
-| `cas_update_round(db, round, expected_version)` | Compare-and-swap update on Round using `state_version`. Disables autoflush, issues a `WHERE state_version = expected` UPDATE, raises `StaleStateError` on conflict (0 rows affected). This is the optimistic concurrency guard |
+| `next_to_act(players, current_actor_seat, last_aggressor_seat, current_highest_bet)` | Scans clockwise, skips folded/all-in/inactive seats, closes action when everyone has matched or action returns to aggressor. |
 
-#### `room_config.py` — Room snapshot adapter
+#### `domain/engine/action_pipeline.py`
 
-Implements the `RoomConfigProvider` protocol from the domain layer:
+Central transition pipeline.
 
-| Function / Class | Description |
+| Dataclass | Description |
 |---|---|
-| `fetch_room_config_http(room_id)` | HTTP GET to room-service, translates response into a `RoomConfig` domain DTO |
-| `save_room_snapshot(db, game_id, config)` | Persists `RoomSnapshot` + `RoomSnapshotPlayer` + `RoomSnapshotBlindLevel` rows |
-| `load_room_snapshot(db, game_id)` | Loads the snapshot back into a `RoomConfig` DTO from the database |
-| `HttpRoomConfigProvider` | Class implementing the protocol: `fetch_live()`, `save_snapshot()`, `load_snapshot()` — delegates to the functions above |
+| `PlayerMutation` | Stack/commit/fold/all-in changes for one player. |
+| `RoundMutation` | Pot, highest bet, min raise, next actor, aggressor, closure changes. |
+| `HandTransition` | Full pure transition result. |
+| `ApplyActionResult` | Simplified adapter result for application code. |
 
-#### `logging.py` — Structured logging with correlation IDs
+Functions:
+
+| Function | Description |
+|---|---|
+| `transition_hand_state(...)` | Pure function that validates and computes state changes. |
+| `apply_action(round, players, player_id, action, amount, expected_version)` | ORM adapter that builds context, applies mutation to models, and increments `state_version`. |
+
+#### `domain/engine/street_progression.py`
+
+Moves a closed betting street forward.
+
+| Function | Description |
+|---|---|
+| `next_street(current)` | Returns preflop -> flop -> turn -> river -> showdown. |
+| `find_first_to_act(eligible, reference_seat)` | Finds first eligible seat clockwise. |
+| `evaluate_street_end(...)` | Returns next street, showdown, or settle-hand action. |
+
+#### `domain/engine/side_pots.py`
+
+Calculates main and side pots.
+
+| Dataclass | Description |
+|---|---|
+| `PlayerContribution` | Player id, committed amount, folded flag, showdown flag. |
+| `Pot` | Pot index, amount, contributor ids, eligible winner ids. |
+
+Function:
+
+| Function | Description |
+|---|---|
+| `calculate_side_pots(players)` | Slices commitment levels into pots and merges dead pots forward. |
+
+#### `domain/engine/payout_validation.py`
+
+Validates submitted settlement against computed side pots.
+
+| Function | Description |
+|---|---|
+| `validate_payouts_against_side_pots(round_players, submitted_payouts, total_pot)` | Verifies pot indices, amounts, total pot, and winner eligibility. |
+
+#### `domain/engine/table_runtime.py`
+
+Pure table/session state machine.
 
 | Component | Description |
 |---|---|
-| `correlation_id_ctx` | `ContextVar` holding the current correlation ID (set by middleware, propagated through async calls) |
-| `StructuredLogger` | Wrapper around `logging.Logger` that auto-attaches the correlation ID to every log message via an `extra.structured` dict. Methods: `info()`, `warning()`, `error()`, `debug()` — all accept arbitrary `**fields` keyword arguments |
-| `StructuredFormatter` | Custom `logging.Formatter` that appends structured fields as `key=value` pairs to the log line |
-| `configure_logging(level)` | Sets up the root logger with the structured formatter |
+| `SeatStatus` | `ACTIVE`, `SITTING_OUT`, `EMPTY`. |
+| `TableStatus` | `WAITING`, `RUNNING`, `PAUSED`, `FINISHED`. |
+| `TableSeat` | Seat/player/chip/sit-out information. |
+| `BlindClock` | Blind level, level start time, hands at current level. |
+| `TableRuntime` | Session lifecycle, active seats, sit-in/out, hand completion. |
 
-#### `middleware.py` — HTTP middleware
+#### `domain/ledger/hand_ledger.py`
+
+Immutable hand event application and state rebuilding.
+
+| Dataclass | Description |
+|---|---|
+| `LedgerRow` | Input row for replay/rebuild. |
+| `PlayerSnapshot` | Rebuilt player-level state. |
+| `HandState` | Rebuilt aggregate state. |
+
+Functions:
+
+| Function | Description |
+|---|---|
+| `apply_entry(state, entry)` | Applies blind/ante/bet/payout/completion/correction entries. |
+| `rebuild_hand_state(entries)` | Replays all ledger rows into a fresh `HandState`. |
+
+#### `domain/ledger/hand_replay.py`
+
+| Function | Description |
+|---|---|
+| `replay_hand(entries)` | Captures a state snapshot after each ledger entry. |
+| `verify_consistency(entries, live_pot_total, live_player_committed)` | Compares ledger-rebuilt state to live projection values. |
+
+#### `domain/ledger/hand_history.py`
+
+| Function | Description |
+|---|---|
+| `build_hand_timeline(round_id, entries)` | Builds per-street actions, running pot totals, payouts, and corrections. |
+
+#### `domain/reporting/settlement_explainer.py`
+
+| Function | Description |
+|---|---|
+| `explain_settlement(contributions, submitted_payouts)` | Produces structured pot explanations and narrative text. |
+
+#### `domain/scenario_runner.py`
+
+Declarative test DSL for full hand scenarios.
 
 | Component | Description |
 |---|---|
-| `CorrelationIdMiddleware` | Starlette middleware that extracts `X-Correlation-ID` from the request header (or generates a UUID), sets it in the context var, measures request duration, logs the method/path/status/duration, and returns the correlation ID in the response header |
+| `HandScenario` | Players, blinds, dealer seat, scripted actions, expectations. |
+| `run_scenario(...)` | Runs actions through the real engine and evaluates expectations. |
 
----
+#### `domain/integration/room_adapter.py`
 
-### API layer (`game-service/app/api/routes.py`)
-
-All endpoints use FastAPI dependency injection for the async DB session.
-
-#### Game lifecycle
-
-| Method | Path | Description |
-|---|---|---|
-| POST | `/games` | Start a new game for a room |
-| GET | `/games/{game_id}` | Get game details |
-| GET | `/games/room/{room_id}` | Get active game for a room |
-| POST | `/games/{game_id}/rounds` | Start a new round |
-| GET | `/games/{game_id}/rounds` | List all rounds for a game |
-| GET | `/games/{game_id}/rounds/active` | Get the active round |
-| GET | `/rounds/{round_id}` | Get round details |
-| POST | `/rounds/{round_id}/resolve` | Resolve hand with payouts |
-| POST | `/rounds/{round_id}/advance-street` | Advance to next street |
-| POST | `/rounds/{round_id}/winner` | Declare a single winner |
-| POST | `/games/{game_id}/advance-blinds` | Increment blind level |
-| POST | `/games/{game_id}/end` | End the game |
-
-#### Betting
-
-| Method | Path | Description |
-|---|---|---|
-| POST | `/bets` | Place a bet (fold/check/call/bet/raise/all-in) |
-| GET | `/bets/round/{round_id}` | Get all bets for a round |
-| GET | `/bets/round/{round_id}/pot` | Get current pot total |
-| GET | `/bets/round/{round_id}/players` | Get per-player bet summaries |
-
-#### Corrections
-
-| Method | Path | Description |
-|---|---|---|
-| POST | `/rounds/{round_id}/corrections/reverse-action` | Reverse a ledger entry |
-| POST | `/rounds/{round_id}/corrections/adjust-stack` | Adjust a player's stack |
-| POST | `/rounds/{round_id}/corrections/reopen-hand` | Reopen a completed hand |
-| POST | `/rounds/{round_id}/corrections/correct-payout` | Correct a payout |
-
-#### Queries & analysis
-
-| Method | Path | Description |
-|---|---|---|
-| GET | `/rounds/{round_id}/ledger` | Get all ledger entries |
-| GET | `/rounds/{round_id}/hand-state` | Get rebuilt hand state from ledger |
-| GET | `/rounds/{round_id}/replay` | Step-by-step hand replay |
-| GET | `/rounds/{round_id}/timeline` | Per-street action timeline |
-| GET | `/rounds/{round_id}/settlement-explanation` | Structured pot breakdown + narrative |
-| GET | `/rounds/{round_id}/consistency-check` | Compare replayed vs live state |
-| GET | `/rounds/{round_id}/table-state` | Frontend contract: legal actions, pot, acting player, state_version |
-
-#### Table runtime
-
-| Method | Path | Description |
-|---|---|---|
-| POST | `/games/{game_id}/pause` | Pause the table session |
-| POST | `/games/{game_id}/resume` | Resume a paused session |
-| POST | `/games/{game_id}/record-hand-completed` | Record hand completion for blind clock |
-| GET | `/games/{game_id}/session-status` | Get table runtime state |
-
----
-
-### Shared library (`shared/`)
-
-#### `core/db/session.py` — Async session management
+Anti-corruption DTOs/protocol between room-service and game-service.
 
 | Component | Description |
 |---|---|
-| `make_get_db(SessionLocal)` | Factory that returns a FastAPI dependency generator yielding an `AsyncSession` |
-| `atomic(session)` | Async context manager wrapping a block in `session.begin_nested()` (SAVEPOINT). On success, the savepoint is committed; on exception, it is rolled back. Used to group multiple DB writes (e.g. round + players + ledger + outbox) into a single atomic unit |
+| `BlindLevelConfig` | Blind level DTO. |
+| `PlayerConfig` | Player DTO. |
+| `RoomConfig` | Room snapshot DTO with `active_players`, `active_seats`, and `blind_level()`. |
+| `RoomConfigProvider` | Protocol for live fetch, snapshot save, snapshot load. |
 
-#### `core/messaging/consumer.py` — RabbitMQ consumer
+#### `domain/rules.py`
 
-Declares a durable topic exchange, per-service queue, dead-letter exchange (DLX) with retry topology. Binds routing keys, dispatches messages to handler callables. Supports automatic nack → DLQ routing on handler failure.
+| Component | Description |
+|---|---|
+| `RulesProfile` | Frozen config for a poker rules profile. |
+| `NO_LIMIT_HOLDEM` | Current rules profile used by the engine. |
 
-#### `core/outbox/worker.py` — Outbox publisher
+#### `domain/exceptions.py`
 
-Background worker that polls the outbox table for unsent events, publishes them to RabbitMQ, and marks them as sent. Provides reliable at-least-once delivery.
+Pure domain error hierarchy rooted at `DomainError`. HTTP handling is kept outside domain logic.
 
-#### `core/outbox/helpers.py` — Outbox write helper
+Notable exceptions include:
 
-`add_outbox_event(db, OutboxModel, event_dict)` — creates an outbox row from an event dict in a single call.
-
-#### `schemas/` — Shared Pydantic schemas
-
-Cross-service request/response schemas: `auth.py` (tokens, login), `bets.py` (PlaceBet, BetResponse, PotResponse, PlayerBetSummary), `games.py` (game/round schemas), `rooms.py` (room/player schemas), `users.py` (user profile schemas).
+`RoundNotActive`, `ActionClosed`, `AlreadyAtShowdown`, `PlayerNotInHand`, `PlayerAlreadyFolded`, `PlayerAlreadyAllIn`, `NotYourTurn`, `IllegalAction`, `CheckNotAllowed`, `CallNotAllowed`, `BetNotAllowed`, `RaiseNotAllowed`, `RaiseBelowMinimum`, `AmountExceedsStack`, `InvalidAmount`, `GameNotActive`, `GameAlreadyExists`, `NotFound`, `LedgerEntryNotFound`, `EntryAlreadyReversed`, `CannotReverseCorrection`, `PayoutExceedsPot`, `PayoutEmpty`, `PayoutMismatch`, `StaleStateError`, `DuplicateActionError`, `IdempotencyConflict`.
 
 ---
 
-## Quick start
+## Shared Library
+
+Location: `shared`
+
+| Path | Purpose |
+|---|---|
+| `shared/core/auth/roles.py` | Role normalization helpers. |
+| `shared/core/db/session.py` | Async DB factory, FastAPI dependency factory, `atomic()` savepoint helper. |
+| `shared/core/db/crud.py` | Generic `fetch_or_404()` and `apply_partial_update()`. |
+| `shared/core/messaging/mq.py` | RabbitMQ publisher and config. |
+| `shared/core/messaging/events.py` | Domain-event builder helpers. |
+| `shared/core/messaging/consumer.py` | RabbitMQ consumer with retry/DLQ topology. |
+| `shared/core/outbox/model.py` | Outbox model factory. |
+| `shared/core/outbox/helpers.py` | `add_outbox_event()`. |
+| `shared/core/outbox/worker.py` | Polling publisher loop and stats. |
+| `shared/schemas/*.py` | Cross-service request/response Pydantic schemas. |
+
+---
+
+## Gateway Service
+
+Location: `services/gateway-service`
+
+The gateway is the intended public API surface.
+
+Main modules:
+
+| Path | Purpose |
+|---|---|
+| `app/main.py` | FastAPI app, route registration, correlation middleware, client shutdown. |
+| `app/clients/service_client.py` | Persistent service clients for auth/user/room/game. |
+| `app/utils/proxy.py` | Response forwarding and error propagation. |
+| `app/routes/auth_routes.py` | Auth and auth-user proxy routes. |
+| `app/routes/user_routes.py` | User profile proxy routes. |
+| `app/routes/room_routes.py` | Room proxy routes. |
+| `app/routes/player_routes.py` | Player proxy routes. |
+| `app/routes/game_routes.py` | Game proxy routes. |
+| `app/routes/round_routes.py` | Round/correction/analysis proxy routes. |
+| `app/routes/bet_routes.py` | Bet proxy routes. |
+
+The gateway adds or propagates `X-Correlation-ID` for each request.
+
+---
+
+## Quick Start
+
+Prerequisites:
+
+- Docker and Docker Compose.
+- Python 3.13 for local tests.
+
+Start infrastructure and services:
 
 ```bash
-# bring everything up (builds images, starts infra + services)
 make up
+```
 
-# run Alembic migrations
+Run migrations:
+
+```bash
 make migrate-all
+```
 
-# tail logs
+View logs:
+
+```bash
 make logs
 ```
 
-### Individual commands
+Useful commands:
 
 ```bash
-make build          # rebuild images
-make down           # stop all containers
-make ps             # show running services
-make restart        # restart all containers
-make migrate-auth   # migrate auth-service DB
-make migrate-user   # migrate user-service DB
-make migrate-room   # migrate room-service DB
-make migrate-game   # migrate game-service DB
+make build
+make down
+make ps
+make restart
+make migrate-auth
+make migrate-user
+make migrate-room
+make migrate-game
+make openapi
 ```
 
-## Running tests
+Service URLs:
+
+| Service | URL |
+|---|---|
+| Gateway | `http://localhost:8000` |
+| Room service | `http://localhost:8001` |
+| Game service | `http://localhost:8002` |
+| Auth service | `http://localhost:8004` |
+| User service | `http://localhost:8005` |
+| RabbitMQ management | `http://localhost:15672` |
+
+---
+
+## Running Tests
+
+Install dependencies:
 
 ```bash
-# install test dependencies
 pip install -r requirements-test.txt
-cd shared && pip install -e ".[test]" && cd ..
-for service in services/*/; do pip install -r "$service/requirements.txt"; done
-
-# run all tests
-python -m pytest tests/ -v
-
-# run with coverage
-python -m pytest tests/unit/ -v --cov=shared --cov=services --cov-report=term-missing
+cd shared
+pip install -e ".[test]"
+cd ..
 ```
 
-**421 unit tests** (413 passing, 8 PostgreSQL-only skipped in SQLite mode):
+Install service requirements as needed:
 
-| Area | Tests | Description |
+```bash
+pip install -r services/auth-service/requirements.txt
+pip install -r services/user-service/requirements.txt
+pip install -r services/room-service/requirements.txt
+pip install -r services/game-service/requirements.txt
+pip install -r services/gateway-service/requirements.txt
+```
+
+Run unit tests:
+
+```bash
+python -m pytest tests/unit
+```
+
+Run all tests:
+
+```bash
+python -m pytest tests
+```
+
+Run compile check:
+
+```bash
+python -m compileall services shared tests
+```
+
+Current local verification:
+
+```text
+python -m compileall services shared tests
+python -m pytest tests/unit
+399 passed
+```
+
+Integration tests live under `tests/integration` and are intended for database-backed behavior such as PostgreSQL concurrency.
+
+---
+
+## Test Coverage Map
+
+Current unit suite size: 399 tests.
+
+| Area | What it covers |
+|---|---|
+| Auth infrastructure | Password hashing, JWTs, refresh token helpers. |
+| User CRUD | Create/list/fetch user profile behavior. |
+| Room repository | Room codes, room lookup, players ordered by seat, counts, duplicate names. |
+| Bet validator | Turn rules, fold/check/call/bet/raise/all-in validation, stack and min-raise rules. |
+| Blind posting | Antes, SB/BB, heads-up, short stacks, mixed stacks. |
+| Position rotation | Dealer/SB/BB assignment and rotation including heads-up and wraparound. |
+| Turn engine | Clockwise action, skipped folded/all-in players, closure at aggressor, all-in cases. |
+| Street progression | Next street, showdown triggers, settle-hand triggers, first actor per street. |
+| Action pipeline | State mutation and action progression through the unified transition path. |
+| Side pots | Main/side pots, folded players, dead-pot merging, chip conservation. |
+| Payout validation | Payout amount, pot index, eligibility checks. |
+| Hand ledger | Rebuilds, reversals, stack adjustments, reopen/correct payout workflows. |
+| Hand replay/timeline/explainer | Replay snapshots, consistency, timeline, settlement explanation. |
+| Scenario runner | Declarative full-hand scenarios. |
+| Table runtime | Seat state, pause/resume, blind clock, hand counters. |
+| Settlement transactions | Atomic savepoints and rollback behavior. |
+| Integration-style unit flows | Full betting rounds, street transitions, settlement and ledger rebuilds. |
+
+---
+
+## Project Structure
+
+```text
+.
+|-- shared/
+|   |-- core/
+|   |   |-- auth/
+|   |   |-- db/
+|   |   |-- messaging/
+|   |   `-- outbox/
+|   `-- schemas/
+|-- services/
+|   |-- auth-service/
+|   |-- user-service/
+|   |-- room-service/
+|   |-- game-service/
+|   |   `-- app/
+|   |       |-- api/
+|   |       |-- application/
+|   |       |   |-- commands/
+|   |       |   `-- queries/
+|   |       |-- domain/
+|   |       |   |-- engine/
+|   |       |   |-- integration/
+|   |       |   |-- ledger/
+|   |       |   `-- reporting/
+|   |       `-- infrastructure/
+|   `-- gateway-service/
+|-- tests/
+|   |-- unit/
+|   `-- integration/
+|-- docker-compose.yml
+|-- Makefile
+|-- init-databases.sql
+|-- requirements-test.txt
+`-- README.md
+```
+
+---
+
+## Docker Compose Environment
+
+`docker-compose.yml` starts:
+
+- PostgreSQL 15 with the `poker` user.
+- RabbitMQ 3 with the management UI.
+- `auth-service`, `user-service`, `room-service`, `game-service`, and `gateway-service`.
+
+Key environment variables:
+
+| Variable | Used by | Purpose |
 |---|---|---|
-| Auth service | 12 | Token generation, password hashing, JWT operations |
-| Bet validator | 39 | Min-raise, pot-limit, no-limit, all-in edge cases |
-| Blind posting | 23 | SB/BB/ante posting, heads-up, missing stacks |
-| Hand ledger | 24 | Ledger recording, multi-winner entries, chip tracking |
-| Holdem scenarios | 37 | End-to-end Texas Hold'em scenarios (full hands) |
-| Positions | 12 | Dealer button rotation, seat assignment |
-| Settlement | 8 | Atomic settlement transactions, multi-winner splits |
-| Side pots | 25 | All-in side-pot calculation, complex multi-pot scenarios |
-| Street progression | 47 | Street advancement, skip logic, showdown triggers |
-| Turn engine | 47 | Turn rotation, fold/check/call/raise/all-in flow |
-| Action pipeline | 13 | Unified apply_action: mutation, turn progression, validation |
-| Payout validation | 7 | Side-pot eligibility, overpay rejection, split pots |
-| Integration flows | 13 | Full betting rounds, street transitions, settlement, ledger rebuild, pure transitions |
-| Engine modules | 25 | Hand replay, settlement explainer, hand timeline, rules profile |
-| Scenario runner | 9 | Declarative hand scenarios: heads-up, 3-way, all-in, reraise, expectations |
-| New features | 34 | Incremental replay, optimistic concurrency, RulesProfile wiring, table runtime, blind clock, idempotency |
-| Room repository | 11 | Room CRUD, player management queries |
-| User CRUD | 5 | User creation, listing, lookup |
+| `AUTH_DB` | auth-service | Async SQLAlchemy URL for auth database. |
+| `USER_DB` | user-service | Async SQLAlchemy URL for user database. |
+| `ROOM_DB` | room-service | Async SQLAlchemy URL for room database. |
+| `GAME_DB` | game-service | Async SQLAlchemy URL for game database. |
+| `JWT_SECRET` | auth-service | JWT signing secret. |
+| `RABBIT_URL` | room/game/user services | RabbitMQ connection URL. |
+| `EXCHANGE_NAME` | room/game/user services | Topic exchange name. |
+| `ROOM_SERVICE_URL` | game-service/gateway | Room service base URL. |
+| `GAME_SERVICE_URL` | gateway | Game service base URL. |
+| `AUTH_SERVICE_URL` | gateway | Auth service base URL. |
+| `USER_SERVICE_URL` | gateway | User service base URL. |
 
-### CI
+---
 
-Tests run automatically on push/PR to `main` and `develop` via GitHub Actions. The workflow includes:
+## Tech Stack
 
-- Unit tests with SQLite in-memory databases
-- Coverage reporting via Codecov
-- Test collection verification (markers-check job)
+- Python 3.13
+- FastAPI
+- SQLAlchemy 2 async
+- Alembic
+- Pydantic 2
+- PostgreSQL / asyncpg
+- RabbitMQ / aio-pika
+- httpx
+- bcrypt
+- python-jose
+- Docker Compose
+- pytest
 
-## Tech stack
+---
 
-- Python 3.13 · FastAPI · SQLAlchemy 2 (async) · Pydantic 2
-- bcrypt · python-jose (JWT) · aio-pika · asyncpg · httpx · Alembic
-- Docker & Docker Compose · GitHub Actions
+## Recent Cleanup Notes
 
-## Project structure
+The latest code state includes these cleanup changes:
 
-```
-├── shared/                  # Cross-cutting library (installed as editable package)
-│   ├── core/
-│   │   ├── auth/            # Role definitions
-│   │   ├── db/              # Session management (atomic()), CRUD helpers
-│   │   ├── messaging/       # RabbitMQ publisher, consumer (DLX + retry), events
-│   │   └── outbox/          # Outbox pattern (model, helpers, worker)
-│   └── schemas/             # Pydantic schemas shared across services
-├── services/
-│   ├── auth-service/        # JWT auth, registration, login
-│   ├── user-service/        # User profiles
-│   ├── room-service/        # Room + player management
-│   ├── game-service/        # Full poker engine (rounds, betting, settlement)
-│   │   └── app/
-│   │       ├── api/         # FastAPI routes (30+ endpoints)
-│   │       ├── application/ # Command + query services, action helpers, mappers
-│   │       ├── domain/      # Pure domain logic (15 modules documented above)
-│   │       └── infrastructure/ # Repository, room config adapter, logging, middleware
-│   └── gateway-service/     # HTTP gateway with connection-pooled clients
-├── tests/
-│   ├── unit/                # 421 unit tests
-│   └── integration/         # Integration tests (Postgres-backed)
-├── docker-compose.yml
-├── Makefile
-└── .github/workflows/tests.yml
-```
+- Room detail response assembly is centralized in `room_detail_to_response()`.
+- Dealer/SB/BB assignment and rotation are centralized in `domain/engine/positions.py`.
+- Room code generation uses `secrets.choice`.
+- The unused `get_latest_round()` helper was removed from game repository documentation/code.
+- The empty `EliminatePlayer` schema was removed; eliminate player endpoint does not require a request body.
+- Mojibake log strings were normalized to ASCII.
 
-## Changelog
+---
 
-### Comment cleanup (task 17)
+## Future Work
 
-- **Stripped all comments and docstrings** from 102 source files (203 inline comments, 162 docstring blocks removed)
-- **Comprehensive README documentation** — all module documentation consolidated into the Module Reference section above
-- **Empty class bodies fixed** — exception classes that lost their docstring bodies received `pass` statements
-- **Tests verified** — 421 collected, 413 passed, 0 failed, 8 PG-skipped
-
-### Hardening — DB CAS, idempotency, table runtime, observability (task 16)
-
-- **DB-level CAS** — `cas_update_round()` uses `WHERE state_version = expected` UPDATE; `StaleStateError` on conflict; autoflush disabled during CAS
-- **Scoped idempotency** — `idempotency_key` on bet commands; duplicate submissions return original response via `DuplicateActionError` / `IdempotencyConflict`
-- **Table runtime persistence** — `TableRuntimeCommandService` wires domain state machine to Game model; `pause_table`, `resume_table`, `record_hand_completed`, `get_session_status` endpoints
-- **Expanded frontend contract** — `TableStateResponse` with legal actions, pot, acting player, `state_version`; `SessionStatusResponse` read model
-- **Structured logging** — `StructuredLogger` with correlation ID context var, `StructuredFormatter`, `CorrelationIdMiddleware`
-- **Integration tests** — Postgres-backed tests with real async sessions
-
-### Engine evolution — replay, explainer, scenarios (task 15)
-
-- **Hand replay engine** – `replay_hand()` rebuilds every intermediate `HandState` from ledger entries; `verify_consistency()` compares replayed state against live projection
-- **Settlement explanation engine** – `explain_settlement()` produces structured `SettlementExplanation` with per-pot breakdown and auto-generated narrative
-- **Hand history timeline** – `build_hand_timeline()` reconstructs a `HandTimeline` organized by street with running pot totals
-- **Scenario runner framework** – declarative `HandScenario` DSL with `run_scenario()` that drives `apply_action` and verifies expectations
-- **Rules profile** – frozen `RulesProfile` dataclass; `NO_LIMIT_HOLDEM` pre-built profile
-- **Engine versioning** – `engine_version` + `state_version` columns on Round
-- **34 new tests** – `test_engine_modules.py` (25) + `test_scenarios.py` (9)
-
-### Hand engine refinement (task 14)
-
-- **Explicit `last_aggressor_seat`** – new column on Round; eliminates fragile `acting_player_id` proxy
-- **Pure state-transition core** – `transition_hand_state()` as pure function; `apply_action()` as thin ORM adapter
-- **Command-service boilerplate reduction** – `record_bet_action()` + `append_ledger_entry()` helpers
-- **Enum CheckConstraints** – DB-level enum validation on status/street/action/entry_type columns
-- **Anti-corruption layer formalized** – `RoomConfigProvider` protocol + `HttpRoomConfigProvider`
-- **13 new integration tests** – `test_integration_flows.py`
-
-### Architecture overhaul (task 13)
-
-- **Domain exceptions** – pure hierarchy; HTTP mapping at API boundary only
-- **DB invariants** – ForeignKey, UniqueConstraint, CheckConstraint, Index on all game-service models
-- **Room snapshot adapter** – room config captured at game start; no live HTTP during play
-- **Unified action pipeline** – single `apply_action()` entry point
-- **Ledger mirroring** – every mutation writes an immutable `HandLedgerEntry`
-- **Side-pot validation** – `payout_validation.py` validates against `calculate_side_pots()`
-- **20 new tests** – `test_action_pipeline.py` (13) + `test_payout_validation.py` (7)
-
-### Service consolidation & cleanup (task 12)
-
-- **Removed betting-service** – consolidated into game-service
-- **Gateway connection pooling** – persistent `AsyncClient` with lazy init
-- **Dead consumer + dead code removed** across all services
-- **Tests reorganized** + **CI workflow added**
-
-## Pending / future work
-
-- [ ] **Bet table evaluation** – The `Bet` table is now redundant with `HandLedgerEntry`. Kept as a read model for fast per-round action queries. May be removed when ledger coverage is sufficient
-- [ ] Hand evaluation – no poker hand ranking engine yet (e.g. determining flush vs. straight)
-- [ ] WebSocket support – real-time game state push to connected players
-- [ ] Password reset flow – `PasswordResetToken` model exists but the flow is not implemented
-- [ ] Rate limiting – no request throttling on the gateway
-- [ ] Metrics & distributed tracing – structured logging is in place; metrics (Prometheus) and tracing (OpenTelemetry) not yet added
-- [ ] Frontend client – no UI exists yet; backend is API-only
+- Add a poker hand evaluator for showdown hand ranking.
+- Replace periodic WebSocket table-state snapshots with event-driven push from domain events.
+- Add production email delivery for password reset tokens.
+- Expose table runtime routes through the gateway if they should be public.
+- Add rate limiting to the gateway.
+- Add metrics and distributed tracing.
+- Consider replacing `Bet` read model with ledger-backed queries once frontend needs are clear.

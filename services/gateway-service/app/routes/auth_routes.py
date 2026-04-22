@@ -8,6 +8,7 @@ from shared.schemas.auth import (
     Register, RegisterResponse, Login, TokenPairResponse,
     RefreshRequest, LogoutRequest, AuthActionResponse,
     AuthUserResponse, UpdateAuthUser, DeleteAuthUserResponse,
+    ForgotPasswordRequest, ResetPasswordRequest,
 )
 
 router = APIRouter(tags=["auth"])
@@ -30,6 +31,16 @@ async def refresh_tokens(data: RefreshRequest):
 @router.post("/logout", response_model=AuthActionResponse)
 async def logout(data: LogoutRequest):
     resp = await auth_client.post("/logout", json=data.model_dump())
+    return forward_response(resp)
+
+@router.post("/forgot-password", response_model=AuthActionResponse)
+async def forgot_password(data: ForgotPasswordRequest):
+    resp = await auth_client.post("/forgot-password", json=data.model_dump())
+    return forward_response(resp)
+
+@router.post("/reset-password", response_model=AuthActionResponse)
+async def reset_password(data: ResetPasswordRequest):
+    resp = await auth_client.post("/reset-password", json=data.model_dump())
     return forward_response(resp)
 
 @router.get("/auth-users", response_model=list[AuthUserResponse])

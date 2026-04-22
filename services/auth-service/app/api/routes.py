@@ -7,6 +7,7 @@ from ..application.queries.auth_user_query_service import AuthUserQueryService
 from ..domain.schemas import (
     Register, Login, TokenPairResponse, RefreshRequest,    
     LogoutRequest, AuthUserResponse, UpdateAuthUser,
+    ForgotPasswordRequest, ResetPasswordRequest, AuthActionResponse,
 )
 from ..infrastructure.db import SessionLocal
 from shared.core.db.session import make_get_db
@@ -29,6 +30,14 @@ async def refresh_tokens(payload: RefreshRequest, db: AsyncSession = Depends(get
 @router.post("/logout")
 async def logout(payload: LogoutRequest, db: AsyncSession = Depends(get_db)):
     return await AuthCommandService(db).logout(payload)
+
+@router.post("/forgot-password", response_model=AuthActionResponse)
+async def forgot_password(payload: ForgotPasswordRequest, db: AsyncSession = Depends(get_db)):
+    return await AuthCommandService(db).forgot_password(payload)
+
+@router.post("/reset-password", response_model=AuthActionResponse)
+async def reset_password(payload: ResetPasswordRequest, db: AsyncSession = Depends(get_db)):
+    return await AuthCommandService(db).reset_password(payload)
 
 @router.get("/auth-users", response_model=list[AuthUserResponse])
 async def list_auth_users(

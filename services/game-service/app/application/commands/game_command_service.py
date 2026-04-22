@@ -26,6 +26,7 @@ from ...domain.schemas import (
 )
 from ...domain.engine.blind_posting import SeatPlayer, post_blinds_and_antes
 from ...domain.engine.positions import assign_positions, rotate_positions
+from ...domain.integration.room_adapter import BlindLevelConfig, RoomConfig
 from ...domain.rules import NO_LIMIT_HOLDEM
 from ...domain.engine.street_progression import PlayerSeat, evaluate_street_end
 from ...infrastructure.repository import (
@@ -127,7 +128,7 @@ class GameCommandService:
 
         small_blind = current_level.small_blind
         big_blind = current_level.big_blind
-        ante = current_level.ante
+        ante = self._ante_amount(room_config, current_level)
 
         active_players = room_config.active_players
 
@@ -534,7 +535,7 @@ class GameCommandService:
                     DataKey.BLIND_LEVEL: new_level_num,
                     DataKey.SMALL_BLIND_AMOUNT: new_level.small_blind,
                     DataKey.BIG_BLIND_AMOUNT: new_level.big_blind,
-                    DataKey.ANTE_AMOUNT: new_level.ante,
+                    DataKey.ANTE_AMOUNT: self._ante_amount(room_config, new_level),
                 },
             )
             add_outbox_event(self.db, OutboxEvent, event)
@@ -546,7 +547,7 @@ class GameCommandService:
             new_blind_level=new_level_num,
             small_blind=new_level.small_blind,
             big_blind=new_level.big_blind,
-            ante=new_level.ante,
+            ante=self._ante_amount(room_config, new_level),
         )
 
     async def end_game(self, game_id: str) -> EndGameResponse:
@@ -581,3 +582,7 @@ class GameCommandService:
     @staticmethod
     def _rotate_positions(active_seats: list[int], current_dealer: int) -> tuple[int, int, int]:
         return rotate_positions(active_seats, current_dealer)
+
+    @staticmethod
+    def _ante_amount(room_config: RoomConfig, blind_level: BlindLevelConfig) -> int:
+        return blind_level.ante if room_config.antes_enabled else 0

@@ -83,6 +83,20 @@ def table_runtime_mod():
         package_name="new_features_app",
     )
 
+@pytest.fixture(scope="module")
+def room_adapter_mod():
+    return load_service_app_module(
+        "game-service", "domain/integration/room_adapter",
+        package_name="new_features_app",
+    )
+
+@pytest.fixture(scope="module")
+def game_command_mod(room_adapter_mod):
+    return load_service_app_module(
+        "game-service", "application/commands/game_command_service",
+        package_name="new_features_app",
+    )
+
 @pytest.fixture
 def LedgerRow(ledger_mod):
     return ledger_mod.LedgerRow
@@ -504,6 +518,30 @@ class TestBlindClock:
         clock = table_runtime_mod.BlindClock(level_started_at=old_time)
         assert clock.should_advance(seconds_per_level=300) is True
         assert clock.should_advance(seconds_per_level=900) is False
+
+class TestAnteConfiguration:
+    def _room_config(self, room_adapter_mod, *, antes_enabled: bool):
+        return room_adapter_mod.RoomConfig(
+            room_id="room-1",
+            starting_dealer_seat=1,
+            antes_enabled=antes_enabled,
+            players=[],
+            blind_levels=[],
+        )
+
+    def test_ante_is_zero_when_room_disables_antes(self, game_command_mod, room_adapter_mod):
+        level = room_adapter_mod.BlindLevelConfig(
+            level=1, small_blind=5, big_blind=10, ante=2,
+        )
+        room_config = self._room_config(room_adapter_mod, antes_enabled=False)
+        assert game_command_mod.GameCommandService._ante_amount(room_config, level) == 0
+
+    def test_ante_uses_blind_level_when_room_enables_antes(self, game_command_mod, room_adapter_mod):
+        level = room_adapter_mod.BlindLevelConfig(
+            level=1, small_blind=5, big_blind=10, ante=2,
+        )
+        room_config = self._room_config(room_adapter_mod, antes_enabled=True)
+        assert game_command_mod.GameCommandService._ante_amount(room_config, level) == 2
 
 class TestIdempotencyKey:
     def test_bet_has_idempotency_key(self, models_mod):

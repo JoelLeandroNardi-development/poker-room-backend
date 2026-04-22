@@ -237,6 +237,7 @@ class SessionStatusResponse(BaseModel):
     current_blind_level: int
     hands_at_current_level: int
     hands_until_blind_advance: Optional[int] = None
+    seconds_until_blind_advance: Optional[int] = None
     max_blind_level: int
     small_blind: Optional[int] = None
     big_blind: Optional[int] = None

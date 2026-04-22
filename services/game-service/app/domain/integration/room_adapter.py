@@ -24,6 +24,7 @@ class PlayerConfig:
 class RoomConfig:
     room_id: str
     starting_dealer_seat: int
+    antes_enabled: bool
     players: list[PlayerConfig]
     blind_levels: list[BlindLevelConfig]
 

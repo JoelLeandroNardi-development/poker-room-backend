@@ -22,6 +22,14 @@ class SetBlindStructure(BaseModel):
 
 class JoinRoom(BaseModel):
     player_name: str = Field(..., min_length=1)
+    seat_number: Optional[int] = Field(default=None, ge=1)
+
+class SeatAssignment(BaseModel):
+    player_id: str = Field(..., min_length=1)
+    seat_number: int = Field(..., ge=1)
+
+class ReorderSeats(BaseModel):
+    assignments: list[SeatAssignment] = Field(..., min_length=1)
 
 class RoomResponse(BaseModel):
     room_id: str

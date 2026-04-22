@@ -6,7 +6,8 @@ from fastapi import HTTPException
 from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..mappers import room_to_response, player_to_response, room_detail_to_response
+from ..mappers import room_to_response, player_to_response
+from ..room_details import build_room_detail_response
 from ...domain.constants import (
     DataKey, ErrorMessage, ResponseMessage, RoomEventType, RoomStatus,
 )
@@ -15,11 +16,12 @@ from ...domain.models import BlindLevel, OutboxEvent, Room, RoomPlayer
 from ...domain.schemas import (
     CreateRoom, JoinRoom, SetBlindStructure,
     RoomResponse, RoomPlayerResponse, RoomDetailResponse,
-    UpdateChips, DeleteRoomResponse,
+    UpdateChips, DeleteRoomResponse, ReorderSeats,
 )
 from ...infrastructure.repository import (
-    count_players_in_room, generate_unique_code, get_blind_levels, get_next_seat_number,
+    count_players_in_room, generate_unique_code, get_next_seat_number,
     get_players_in_room, player_name_exists_in_room, get_room_by_code,
+    seat_number_exists_in_room,
 )
 from shared.core.outbox.helpers import add_outbox_event
 from shared.core.db.crud import fetch_or_404
@@ -77,7 +79,7 @@ class RoomCommandService:
             raise HTTPException(status_code=409, detail=ErrorMessage.DUPLICATE_NAME)
 
         player_id = str(uuid.uuid4())
-        seat_number = await get_next_seat_number(self.db, room.room_id)
+        seat_number = await self._resolve_join_seat(room, data.seat_number)
 
         player = RoomPlayer(
             room_id=room.room_id,
@@ -106,6 +108,45 @@ class RoomCommandService:
         await self.db.refresh(player)
 
         return player_to_response(player)
+
+    async def reorder_seats(self, room_id: str, data: ReorderSeats) -> RoomDetailResponse:
+        room = await fetch_or_404(
+            self.db, Room,
+            filter_column=Room.room_id,
+            filter_value=room_id,
+            detail=ErrorMessage.ROOM_NOT_FOUND,
+        )
+
+        if room.status != RoomStatus.WAITING:
+            raise HTTPException(status_code=400, detail=ErrorMessage.ROOM_NOT_WAITING)
+
+        players = await get_players_in_room(self.db, room_id)
+        player_map = {player.player_id: player for player in players}
+
+        self._validate_seat_assignments(room, data, player_map)
+
+        for assignment in data.assignments:
+            player_map[assignment.player_id].seat_number = assignment.seat_number
+
+        event = build_event(
+            RoomEventType.SEATS_REORDERED,
+            {
+                DataKey.ROOM_ID: room_id,
+                DataKey.ASSIGNMENTS: [
+                    {
+                        DataKey.PLAYER_ID: assignment.player_id,
+                        DataKey.SEAT_NUMBER: assignment.seat_number,
+                    }
+                    for assignment in data.assignments
+                ],
+            },
+        )
+        add_outbox_event(self.db, OutboxEvent, event)
+
+        await self.db.commit()
+        await self.db.refresh(room)
+
+        return await build_room_detail_response(self.db, room)
 
     async def set_blind_structure(self, room_id: str, data: SetBlindStructure) -> RoomDetailResponse:
         room = await fetch_or_404(
@@ -138,10 +179,35 @@ class RoomCommandService:
         await self.db.commit()
         await self.db.refresh(room)
 
-        players = await get_players_in_room(self.db, room_id)
-        levels = await get_blind_levels(self.db, room_id)
+        return await build_room_detail_response(self.db, room)
 
-        return room_detail_to_response(room, players, levels)
+    async def _resolve_join_seat(self, room: Room, requested_seat: int | None) -> int:
+        seat_number = requested_seat or await get_next_seat_number(self.db, room.room_id)
+
+        if seat_number > room.max_players:
+            raise HTTPException(status_code=400, detail=ErrorMessage.INVALID_SEAT)
+        if await seat_number_exists_in_room(self.db, room.room_id, seat_number):
+            raise HTTPException(status_code=409, detail=ErrorMessage.SEAT_TAKEN)
+
+        return seat_number
+
+    def _validate_seat_assignments(
+        self,
+        room: Room,
+        data: ReorderSeats,
+        player_map: dict[str, RoomPlayer],
+    ) -> None:
+        player_ids = [assignment.player_id for assignment in data.assignments]
+        seat_numbers = [assignment.seat_number for assignment in data.assignments]
+
+        if len(set(player_ids)) != len(player_ids):
+            raise HTTPException(status_code=400, detail=ErrorMessage.DUPLICATE_PLAYER_ASSIGNMENT)
+        if len(set(seat_numbers)) != len(seat_numbers):
+            raise HTTPException(status_code=400, detail=ErrorMessage.DUPLICATE_SEAT_ASSIGNMENT)
+        if any(seat > room.max_players for seat in seat_numbers):
+            raise HTTPException(status_code=400, detail=ErrorMessage.INVALID_SEAT)
+        if any(player_id not in player_map for player_id in player_ids):
+            raise HTTPException(status_code=400, detail=ErrorMessage.PLAYER_NOT_IN_ROOM)
 
     async def update_player_chips(self, player_id: str, data: UpdateChips) -> RoomPlayerResponse:
         player = await fetch_or_404(

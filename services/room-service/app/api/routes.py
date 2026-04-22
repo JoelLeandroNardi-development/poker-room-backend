@@ -6,7 +6,7 @@ from ..application.queries.room_query_service import RoomQueryService
 from ..domain.schemas import (
     CreateRoom, JoinRoom, SetBlindStructure,
     RoomResponse, RoomPlayerResponse, RoomDetailResponse,
-    UpdateChips, DeleteRoomResponse,
+    UpdateChips, DeleteRoomResponse, ReorderSeats,
 )
 from ..infrastructure.db import SessionLocal
 from shared.core.db.session import make_get_db
@@ -42,6 +42,10 @@ async def join_room(code: str, data: JoinRoom, db: AsyncSession = Depends(get_db
 @router.put("/rooms/{room_id}/blinds", response_model=RoomDetailResponse)
 async def set_blind_structure(room_id: str, data: SetBlindStructure, db: AsyncSession = Depends(get_db)):
     return await RoomCommandService(db).set_blind_structure(room_id, data)
+
+@router.put("/rooms/{room_id}/seats", response_model=RoomDetailResponse)
+async def reorder_seats(room_id: str, data: ReorderSeats, db: AsyncSession = Depends(get_db)):
+    return await RoomCommandService(db).reorder_seats(room_id, data)
 
 @router.put("/players/{player_id}/chips", response_model=RoomPlayerResponse)
 async def update_player_chips(player_id: str, data: UpdateChips, db: AsyncSession = Depends(get_db)):

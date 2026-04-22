@@ -34,6 +34,20 @@ def room_repo_module(room_models_module):
         package_name="room_test_app",
     )
 
+@pytest.fixture(scope="module")
+def room_command_module(room_repo_module):
+    return load_service_app_module(
+        "room-service", "application/commands/room_command_service",
+        package_name="room_test_app",
+    )
+
+@pytest.fixture(scope="module")
+def room_schema_module(room_command_module):
+    return load_service_app_module(
+        "room-service", "domain/schemas",
+        package_name="room_test_app",
+    )
+
 @pytest.fixture(autouse=True)
 async def _setup_tables(room_db_module, room_models_module):
     engine = room_db_module.engine
@@ -171,3 +185,65 @@ class TestPlayerNameExistsInRoom:
 
         async with room_db_module.SessionLocal() as db:
             assert await room_repo_module.player_name_exists_in_room(db, "r7", "Eve") is False
+
+@pytest.mark.unit
+class TestSeatNumberExistsInRoom:
+    @pytest.mark.asyncio
+    async def test_seat_exists(self, room_db_module, room_models_module, room_repo_module):
+        await _insert_room(room_db_module, room_models_module, room_id="r8", code="SEA1")
+        await _insert_player(room_db_module, room_models_module, room_id="r8", player_id="p30", player_name="Ana", seat=2)
+
+        async with room_db_module.SessionLocal() as db:
+            assert await room_repo_module.seat_number_exists_in_room(db, "r8", 2) is True
+            assert await room_repo_module.seat_number_exists_in_room(db, "r8", 1) is False
+
+@pytest.mark.unit
+class TestRoomCommandSeatManagement:
+    @pytest.mark.asyncio
+    async def test_join_room_with_requested_seat(self, room_db_module, room_models_module, room_command_module, room_schema_module):
+        await _insert_room(room_db_module, room_models_module, room_id="r9", code="J001")
+
+        async with room_db_module.SessionLocal() as db:
+            svc = room_command_module.RoomCommandService(db)
+            response = await svc.join_room_by_code(
+                "J001",
+                room_schema_module.JoinRoom(player_name="Seat Four", seat_number=4),
+            )
+
+        assert response.seat_number == 4
+
+    @pytest.mark.asyncio
+    async def test_join_room_rejects_taken_seat(self, room_db_module, room_models_module, room_command_module, room_schema_module):
+        from fastapi import HTTPException
+
+        await _insert_room(room_db_module, room_models_module, room_id="r10", code="J002")
+        await _insert_player(room_db_module, room_models_module, room_id="r10", player_id="p40", player_name="Taken", seat=2)
+
+        async with room_db_module.SessionLocal() as db:
+            svc = room_command_module.RoomCommandService(db)
+            with pytest.raises(HTTPException) as exc:
+                await svc.join_room_by_code(
+                    "J002",
+                    room_schema_module.JoinRoom(player_name="Blocked", seat_number=2),
+                )
+
+        assert exc.value.status_code == 409
+
+    @pytest.mark.asyncio
+    async def test_reorder_seats(self, room_db_module, room_models_module, room_command_module, room_schema_module):
+        await _insert_room(room_db_module, room_models_module, room_id="r11", code="J003")
+        await _insert_player(room_db_module, room_models_module, room_id="r11", player_id="p50", player_name="One", seat=1)
+        await _insert_player(room_db_module, room_models_module, room_id="r11", player_id="p51", player_name="Two", seat=2)
+
+        async with room_db_module.SessionLocal() as db:
+            svc = room_command_module.RoomCommandService(db)
+            response = await svc.reorder_seats(
+                "r11",
+                room_schema_module.ReorderSeats(assignments=[
+                    room_schema_module.SeatAssignment(player_id="p50", seat_number=2),
+                    room_schema_module.SeatAssignment(player_id="p51", seat_number=1),
+                ]),
+            )
+
+        seats = {player.player_id: player.seat_number for player in response.players}
+        assert seats == {"p50": 2, "p51": 1}

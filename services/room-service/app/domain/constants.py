@@ -12,6 +12,7 @@ class RoomEventType(StrEnum):
     PLAYER_JOINED = "room.player_joined"
     PLAYER_ELIMINATED = "room.player_eliminated"
     CHIPS_UPDATED = "room.chips_updated"
+    SEATS_REORDERED = "room.seats_reordered"
 
 class EventKey(StrEnum):
     EVENT_ID = "event_id"
@@ -27,6 +28,7 @@ class DataKey(StrEnum):
     CHIP_COUNT = "chip_count"
     MAX_PLAYERS = "max_players"
     CREATED_BY = "created_by"
+    ASSIGNMENTS = "assignments"
 
 class TableName(StrEnum):
     ROOMS = "rooms"
@@ -40,6 +42,11 @@ class ErrorMessage(StrEnum):
     ROOM_NOT_WAITING = "Room is not in WAITING status"
     INVALID_CODE = "Invalid room code"
     DUPLICATE_NAME = "A player with that name is already in the room"
+    SEAT_TAKEN = "Seat is already taken"
+    INVALID_SEAT = "Seat number is outside the room capacity"
+    DUPLICATE_SEAT_ASSIGNMENT = "Seat assignments contain duplicate seats"
+    DUPLICATE_PLAYER_ASSIGNMENT = "Seat assignments contain duplicate players"
+    PLAYER_NOT_IN_ROOM = "All assigned players must belong to the room"
 
 class ResponseMessage(StrEnum):
     DELETED = "deleted"

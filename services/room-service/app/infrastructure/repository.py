@@ -43,6 +43,13 @@ async def get_next_seat_number(db: AsyncSession, room_id: str) -> int:
     max_seat = res.scalar_one()
     return (max_seat or 0) + 1
 
+async def seat_number_exists_in_room(db: AsyncSession, room_id: str, seat_number: int) -> bool:
+    res = await db.execute(
+        select(RoomPlayer)
+        .where(RoomPlayer.room_id == room_id, RoomPlayer.seat_number == seat_number)
+    )
+    return res.scalar_one_or_none() is not None
+
 async def get_blind_levels(db: AsyncSession, room_id: str) -> list[BlindLevel]:
     res = await db.execute(
         select(BlindLevel)

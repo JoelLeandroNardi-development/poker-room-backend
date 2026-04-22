@@ -36,6 +36,9 @@ class ErrorMessage(StrEnum):
     SESSION_REVOKED = "Session revoked"
     SESSION_EXPIRED = "Session expired"
     USER_NOT_FOUND = "User not found"
+    PASSWORD_RESET_REQUESTED = "Password reset requested"
+    PASSWORD_RESET_COMPLETE = "Password reset complete"
+    INVALID_OR_EXPIRED_RESET_TOKEN = "Invalid or expired reset token"
 
 class ResponseKey(StrEnum):
     MESSAGE = "message"
@@ -45,3 +48,4 @@ class ResponseKey(StrEnum):
     EXPIRES_IN = "expires_in"
     OK = "ok"
     EMAIL = "email"
+    DEBUG_TOKEN = "debug_token"

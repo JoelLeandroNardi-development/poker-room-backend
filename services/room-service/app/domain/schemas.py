@@ -1,6 +1,8 @@
 from shared.schemas.rooms import (
     CreateRoom,
     JoinRoom,
+    SeatAssignment,
+    ReorderSeats,
     SetBlindStructure,
     BlindLevelInput,
     RoomResponse,

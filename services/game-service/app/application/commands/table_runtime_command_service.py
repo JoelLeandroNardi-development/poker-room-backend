@@ -1,7 +1,6 @@
 
 from __future__ import annotations
 
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...domain.constants import GameStatus, ErrorMessage
@@ -10,10 +9,12 @@ from ...domain.models import Game
 from ...domain.engine.table_runtime import (
     BlindClock, SeatStatus, TableRuntime, TableSeat, TableStatus,
 )
+from ...domain.integration.room_adapter import RoomConfig
 from ...infrastructure.logging import get_logger
 from ...infrastructure.repository import fetch_or_raise
 from ...infrastructure.room_config import load_room_snapshot
 from shared.core.db.session import atomic
+from shared.core.time import ensure_utc, utc_now
 
 logger = get_logger("game-service.table_runtime")
 
@@ -30,6 +31,7 @@ def _build_runtime_from_game(game: Game, seats: list[TableSeat]) -> TableRuntime
         seats=seats,
         blind_clock=BlindClock(
             current_level=game.current_blind_level,
+            level_started_at=ensure_utc(game.level_started_at),
             hands_at_level=game.hands_at_current_level,
         ),
         hands_played=game.hands_played,
@@ -40,7 +42,7 @@ class TableRuntimeCommandService:
     def __init__(self, db: AsyncSession):
         self.db = db
 
-    async def _load_runtime(self, game_id: str) -> tuple[Game, TableRuntime]:
+    async def _load_runtime(self, game_id: str) -> tuple[Game, TableRuntime, RoomConfig]:
         game = await fetch_or_raise(
             self.db, Game,
             filter_column=Game.game_id,
@@ -58,10 +60,10 @@ class TableRuntimeCommandService:
             for p in room_config.active_players
         ]
         runtime = _build_runtime_from_game(game, seats)
-        return game, runtime
+        return game, runtime, room_config
 
     async def pause_table(self, game_id: str) -> dict:
-        game, runtime = await self._load_runtime(game_id)
+        game, runtime, _room_config = await self._load_runtime(game_id)
         if game.status != GameStatus.ACTIVE:
             raise GameNotActive("Game is not in ACTIVE status")
 
@@ -81,7 +83,7 @@ class TableRuntimeCommandService:
         return {"game_id": game_id, "status": GameStatus.PAUSED}
 
     async def resume_table(self, game_id: str) -> dict:
-        game, runtime = await self._load_runtime(game_id)
+        game, runtime, _room_config = await self._load_runtime(game_id)
         if game.status != GameStatus.PAUSED:
             raise GameNotActive("Game is not paused")
 
@@ -101,14 +103,20 @@ class TableRuntimeCommandService:
         return {"game_id": game_id, "status": GameStatus.ACTIVE}
 
     async def record_hand_completed(self, game_id: str) -> dict:
-        game, runtime = await self._load_runtime(game_id)
+        game, runtime, room_config = await self._load_runtime(game_id)
         runtime.record_hand_completed()
 
         advanced = False
-        room_config = await load_room_snapshot(self.db, game_id)
         max_level = max((bl.level for bl in room_config.blind_levels), default=1)
 
-        if runtime.blind_clock.should_advance(hands_per_level=10):
+        current_bl = room_config.blind_level(game.current_blind_level)
+        seconds_per_level = (
+            current_bl.duration_minutes * 60
+            if current_bl and current_bl.duration_minutes
+            else None
+        )
+
+        if runtime.blind_clock.should_advance(seconds_per_level=seconds_per_level):
             if game.current_blind_level < max_level:
                 runtime.blind_clock.advance()
                 advanced = True
@@ -117,6 +125,7 @@ class TableRuntimeCommandService:
             game.hands_played = runtime.hands_played
             game.hands_at_current_level = runtime.blind_clock.hands_at_level
             game.current_blind_level = runtime.blind_clock.current_level
+            game.level_started_at = runtime.blind_clock.level_started_at
 
         await self.db.commit()
 
@@ -158,11 +167,16 @@ class TableRuntimeCommandService:
             None,
         )
 
-        hands_until_advance: int | None = None
-        hands_per_level = 10
-        remaining = hands_per_level - game.hands_at_current_level
-        if remaining > 0 and game.current_blind_level < max_level:
-            hands_until_advance = remaining
+        seconds_until_blind_advance: int | None = None
+        if (
+            current_bl
+            and current_bl.duration_minutes
+            and game.level_started_at
+            and game.current_blind_level < max_level
+        ):
+            elapsed = (utc_now() - ensure_utc(game.level_started_at)).total_seconds()
+            remaining_seconds = int((current_bl.duration_minutes * 60) - elapsed)
+            seconds_until_blind_advance = max(0, remaining_seconds)
 
         return {
             "game_id": game.game_id,
@@ -170,10 +184,11 @@ class TableRuntimeCommandService:
             "hands_played": game.hands_played,
             "current_blind_level": game.current_blind_level,
             "hands_at_current_level": game.hands_at_current_level,
-            "hands_until_blind_advance": hands_until_advance,
+            "hands_until_blind_advance": None,
+            "seconds_until_blind_advance": seconds_until_blind_advance,
             "max_blind_level": max_level,
             "small_blind": current_bl.small_blind if current_bl else None,
             "big_blind": current_bl.big_blind if current_bl else None,
-            "ante": current_bl.ante if current_bl else 0,
+            "ante": current_bl.ante if current_bl and room_config.antes_enabled else 0,
             "dealer_seat": game.current_dealer_seat,
         }

@@ -4,11 +4,12 @@ from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..mappers import room_to_response, player_to_response, room_detail_to_response
+from ..mappers import room_to_response, player_to_response
+from ..room_details import build_room_detail_response
 from ...domain.constants import ErrorMessage
 from ...domain.models import Room, RoomPlayer
 from ...domain.schemas import RoomResponse, RoomDetailResponse, RoomPlayerResponse
-from ...infrastructure.repository import get_players_in_room, get_blind_levels, get_room_by_code
+from ...infrastructure.repository import get_room_by_code
 from shared.core.db.crud import fetch_or_404
 
 class RoomQueryService:
@@ -23,20 +24,14 @@ class RoomQueryService:
             detail=ErrorMessage.ROOM_NOT_FOUND,
         )
 
-        players = await get_players_in_room(self.db, room.room_id)
-        levels = await get_blind_levels(self.db, room.room_id)
-
-        return room_detail_to_response(room, players, levels)
+        return await build_room_detail_response(self.db, room)
 
     async def get_room_by_code(self, code: str) -> RoomDetailResponse:
         room = await get_room_by_code(self.db, code)
         if room is None:
             raise HTTPException(status_code=404, detail=ErrorMessage.INVALID_CODE)
 
-        players = await get_players_in_room(self.db, room.room_id)
-        levels = await get_blind_levels(self.db, room.room_id)
-
-        return room_detail_to_response(room, players, levels)
+        return await build_room_detail_response(self.db, room)
 
     async def list_rooms(self, limit: int, offset: int = 0, status: str | None = None) -> list[RoomResponse]:
         stmt = select(Room).order_by(Room.created_at.desc()).limit(limit).offset(offset)

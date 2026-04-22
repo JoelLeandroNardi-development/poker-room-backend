@@ -7,6 +7,7 @@ from ..utils.proxy import forward_response
 from shared.schemas.rooms import (
     CreateRoom, JoinRoom, SetBlindStructure, UpdateChips,
     RoomResponse, RoomDetailResponse, RoomPlayerResponse, DeleteRoomResponse,
+    ReorderSeats,
 )
 
 router = APIRouter(prefix="/rooms", tags=["rooms"])
@@ -46,6 +47,11 @@ async def join_room(code: str, data: JoinRoom):
 @router.put("/{room_id}/blinds", response_model=RoomDetailResponse)
 async def set_blind_structure(room_id: str, data: SetBlindStructure):
     resp = await room_client.put(f"/rooms/{room_id}/blinds", json=data.model_dump())
+    return forward_response(resp)
+
+@router.put("/{room_id}/seats", response_model=RoomDetailResponse)
+async def reorder_seats(room_id: str, data: ReorderSeats):
+    resp = await room_client.put(f"/rooms/{room_id}/seats", json=data.model_dump())
     return forward_response(resp)
 
 @router.delete("/{room_id}", response_model=DeleteRoomResponse)

@@ -25,6 +25,47 @@ def auth_token_module(auth_pw_module):
         package_name="auth_test_app",
     )
 
+@pytest.fixture(scope="module")
+def auth_db_module(auth_token_module):
+    return load_service_app_module(
+        "auth-service", "infrastructure/db",
+        package_name="auth_test_app",
+    )
+
+@pytest.fixture(scope="module")
+def auth_models_module(auth_db_module):
+    return load_service_app_module(
+        "auth-service", "domain/models",
+        package_name="auth_test_app",
+    )
+
+@pytest.fixture(scope="module")
+def auth_command_module(auth_models_module):
+    return load_service_app_module(
+        "auth-service", "application/commands/auth_command_service",
+        package_name="auth_test_app",
+    )
+
+@pytest.fixture(scope="module")
+def auth_schema_module(auth_command_module):
+    return load_service_app_module(
+        "auth-service", "domain/schemas",
+        package_name="auth_test_app",
+    )
+
+@pytest.fixture(autouse=True)
+async def _setup_auth_tables(request, auth_db_module, auth_models_module):
+    if "auth_command_module" not in request.fixturenames:
+        yield
+        return
+
+    engine = auth_db_module.engine
+    async with engine.begin() as conn:
+        await conn.run_sync(auth_db_module.Base.metadata.create_all)
+    yield
+    async with engine.begin() as conn:
+        await conn.run_sync(auth_db_module.Base.metadata.drop_all)
+
 @pytest.mark.unit
 class TestPasswordHasher:
     def test_hash_returns_string(self, auth_pw_module):
@@ -108,3 +149,58 @@ class TestTokenService:
         assert isinstance(t1, str)
         assert len(t1) > 20
         assert t1 != t2
+
+@pytest.mark.unit
+class TestPasswordResetFlow:
+    @pytest.mark.asyncio
+    async def test_forgot_and_reset_password(self, auth_db_module, auth_command_module, auth_schema_module):
+        async with auth_db_module.SessionLocal() as db:
+            svc = auth_command_module.AuthCommandService(db)
+            await svc.register(auth_schema_module.Register(
+                email="reset@example.com",
+                password="old-password",
+            ))
+
+            forgot = await svc.forgot_password(
+                auth_schema_module.ForgotPasswordRequest(email="reset@example.com")
+            )
+            assert forgot["ok"] is True
+            assert forgot["debug_token"]
+
+            reset = await svc.reset_password(
+                auth_schema_module.ResetPasswordRequest(
+                    token=forgot["debug_token"],
+                    new_password="new-password",
+                )
+            )
+            assert reset == {"ok": True}
+
+            login = await svc.login(auth_schema_module.Login(
+                email="reset@example.com",
+                password="new-password",
+            ))
+            assert login["access_token"]
+
+    @pytest.mark.asyncio
+    async def test_reset_token_is_single_use(self, auth_db_module, auth_command_module, auth_schema_module):
+        from fastapi import HTTPException
+
+        async with auth_db_module.SessionLocal() as db:
+            svc = auth_command_module.AuthCommandService(db)
+            await svc.register(auth_schema_module.Register(
+                email="single-use@example.com",
+                password="old-password",
+            ))
+            forgot = await svc.forgot_password(
+                auth_schema_module.ForgotPasswordRequest(email="single-use@example.com")
+            )
+            payload = auth_schema_module.ResetPasswordRequest(
+                token=forgot["debug_token"],
+                new_password="new-password",
+            )
+            await svc.reset_password(payload)
+
+            with pytest.raises(HTTPException) as exc:
+                await svc.reset_password(payload)
+
+        assert exc.value.status_code == 401

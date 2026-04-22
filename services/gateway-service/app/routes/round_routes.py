@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from fastapi import APIRouter
+import asyncio
+
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from ..clients.service_client import game_client
 from ..utils.proxy import forward_response
@@ -71,6 +73,38 @@ async def check_consistency(round_id: str):
 async def get_table_state(round_id: str):
     resp = await game_client.get(f"/rounds/{round_id}/table-state")
     return forward_response(resp)
+
+@router.websocket("/{round_id}/table-state/ws")
+async def table_state_websocket(websocket: WebSocket, round_id: str):
+    await websocket.accept()
+    interval_seconds = 1.0
+    try:
+        raw_interval = websocket.query_params.get("interval")
+        if raw_interval is not None:
+            interval_seconds = max(0.25, min(float(raw_interval), 10.0))
+    except ValueError:
+        interval_seconds = 1.0
+
+    try:
+        while True:
+            resp = await game_client.get(f"/rounds/{round_id}/table-state")
+            if resp.status_code >= 400:
+                await websocket.send_json({
+                    "type": "error",
+                    "status_code": resp.status_code,
+                    "detail": resp.text,
+                })
+                await asyncio.sleep(interval_seconds)
+                continue
+
+            await websocket.send_json({
+                "type": "table_state",
+                "round_id": round_id,
+                "data": resp.json(),
+            })
+            await asyncio.sleep(interval_seconds)
+    except WebSocketDisconnect:
+        return
 
 @router.post("/{round_id}/corrections/reverse-action", response_model=LedgerEntryResponse)
 async def reverse_action(round_id: str, data: ReverseActionRequest):
