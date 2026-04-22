@@ -207,9 +207,14 @@ Main modules:
 
 | Path | Purpose |
 |---|---|
-| `app/api/routes.py` | FastAPI routes for auth and auth-user management. |
-| `app/application/commands/auth_command_service.py` | Register, login, refresh, logout. |
+| `app/api/commands/auth_authentication_command_routes.py` | Register, login, refresh, and logout routes. |
+| `app/api/commands/auth_password_command_routes.py` | Forgot-password and reset-password routes. |
+| `app/api/commands/auth_user_command_routes.py` | Auth-user mutation routes. |
+| `app/api/queries/auth_user_query_routes.py` | Auth-user read routes. |
+| `app/application/commands/auth_authentication_command_service.py` | Register, login, refresh, logout, token rotation, and session revocation. |
+| `app/application/commands/auth_password_command_service.py` | Password reset token creation, reset email dispatch, password replacement, and session revocation after reset. |
 | `app/application/commands/auth_user_command_service.py` | Update/delete auth users. |
+| `app/application/helpers.py` | Shared auth lookups and refresh-token revocation helpers. |
 | `app/application/queries/auth_user_query_service.py` | List and fetch auth users. |
 | `app/infrastructure/password_hasher.py` | bcrypt hashing and verification. |
 | `app/infrastructure/password_reset_email.py` | Password reset link creation plus console/SMTP delivery. |

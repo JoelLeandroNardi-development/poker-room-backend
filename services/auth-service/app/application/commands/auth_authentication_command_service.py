@@ -1,30 +1,18 @@
 from uuid import uuid4
-from datetime import datetime, timedelta
 
 from fastapi import HTTPException
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..helpers import get_user_by_email
 from ...domain.constants import ErrorMessage, ResponseKey, TokenClaim, TokenType
-from ...domain.models import AuthUser, AuthSession, PasswordResetToken
-from ...domain.schemas import (
-    Register, Login, RefreshRequest, LogoutRequest,
-    ForgotPasswordRequest, ResetPasswordRequest,
-)
+from ...domain.models import AuthUser, AuthSession
+from ...domain.schemas import Register, Login, RefreshRequest, LogoutRequest
 from ...infrastructure.password_hasher import password_hasher
-from ...infrastructure import config
-from ...infrastructure.password_reset_email import (
-    ConfiguredPasswordResetEmailSender,
-    EmailDeliveryError,
-    PasswordResetEmailSender,
-    build_password_reset_url,
-)
-from ...infrastructure.token_service import (
-    JWTError, decode_token, generate_opaque_token, hash_token, issue_token_pair,
-)
-from shared.core.time import ensure_utc, utc_now
+from ...infrastructure.password_reset_email import ConfiguredPasswordResetEmailSender, PasswordResetEmailSender
+from ...infrastructure.token_service import JWTError, decode_token, hash_token, issue_token_pair
+from shared.core.time import utc_now
 
-class AuthCommandService:
+class AuthAuthenticationCommandService:
     def __init__(
         self,
         db: AsyncSession,
@@ -36,7 +24,7 @@ class AuthCommandService:
         )
 
     async def register(self, data: Register) -> dict:
-        existing = await self._get_user_by_email(data.email)
+        existing = await get_user_by_email(self.db, data.email)
         if existing:
             raise HTTPException(status_code=409, detail=ErrorMessage.EMAIL_ALREADY_EXISTS)
 
@@ -52,7 +40,7 @@ class AuthCommandService:
         return {ResponseKey.MESSAGE: ErrorMessage.USER_REGISTERED, ResponseKey.ROLES: user.roles}
 
     async def login(self, data: Login) -> dict:
-        user = await self._get_user_by_email(data.email)
+        user = await get_user_by_email(self.db, data.email)
 
         if not user or not password_hasher.verify(data.password, user.password):
             raise HTTPException(status_code=401, detail=ErrorMessage.INVALID_CREDENTIALS)
@@ -111,7 +99,7 @@ class AuthCommandService:
 
         session.revoked_at = now
 
-        user = await self._get_user_by_email(str(sub))
+        user = await get_user_by_email(self.db, str(sub))
         if not user:
             raise HTTPException(status_code=401, detail=ErrorMessage.USER_NOT_FOUND)
 
@@ -161,82 +149,3 @@ class AuthCommandService:
             await self.db.commit()
 
         return {ResponseKey.OK: True}
-
-    async def forgot_password(self, data: ForgotPasswordRequest) -> dict:
-        user = await self._get_user_by_email(data.email)
-        if not user:
-            return {ResponseKey.OK: True}
-
-        now = utc_now()
-        token = generate_opaque_token()
-        self.db.add(
-            PasswordResetToken(
-                id=str(uuid4()),
-                user_id=user.id,
-                token_hash=hash_token(token),
-                expires_at=now + timedelta(minutes=config.PASSWORD_RESET_TOKEN_TTL_MIN),
-            )
-        )
-
-        try:
-            await self.password_reset_email_sender.send_password_reset(
-                email=user.email,
-                reset_url=build_password_reset_url(token),
-            )
-        except EmailDeliveryError:
-            await self.db.rollback()
-            raise HTTPException(
-                status_code=503,
-                detail=ErrorMessage.PASSWORD_RESET_EMAIL_FAILED,
-            )
-
-        await self.db.commit()
-
-        response = {ResponseKey.OK: True}
-        if config.PASSWORD_RESET_INCLUDE_DEBUG_TOKEN:
-            response[ResponseKey.DEBUG_TOKEN] = token
-        return response
-
-    async def reset_password(self, data: ResetPasswordRequest) -> dict:
-        now = utc_now()
-        reset_token = await self._get_reset_token(data.token)
-        if (
-            reset_token is None
-            or reset_token.used_at is not None
-            or ensure_utc(reset_token.expires_at) <= now
-        ):
-            raise HTTPException(status_code=401, detail=ErrorMessage.INVALID_OR_EXPIRED_RESET_TOKEN)
-
-        user = await self.db.get(AuthUser, reset_token.user_id)
-        if user is None:
-            raise HTTPException(status_code=404, detail=ErrorMessage.USER_NOT_FOUND)
-
-        user.password = password_hasher.hash(data.new_password)
-        reset_token.used_at = now
-        await self._revoke_active_sessions(user.id, now)
-
-        await self.db.commit()
-
-        return {ResponseKey.OK: True}
-
-    async def _get_user_by_email(self, email: str) -> AuthUser | None:
-        result = await self.db.execute(select(AuthUser).where(AuthUser.email == email))
-        return result.scalar_one_or_none()
-
-    async def _get_reset_token(self, token: str) -> PasswordResetToken | None:
-        result = await self.db.execute(
-            select(PasswordResetToken).where(
-                PasswordResetToken.token_hash == hash_token(token)
-            )
-        )
-        return result.scalar_one_or_none()
-
-    async def _revoke_active_sessions(self, user_id: int, revoked_at: datetime) -> None:
-        sessions = await self.db.execute(
-            select(AuthSession).where(
-                AuthSession.user_id == user_id,
-                AuthSession.revoked_at.is_(None),
-            )
-        )
-        for session in sessions.scalars().all():
-            session.revoked_at = revoked_at

@@ -1,4 +1,3 @@
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..mappers import to_auth_user_response
@@ -11,11 +10,7 @@ class AuthUserCommandService:
     def __init__(self, db: AsyncSession):
         self.db = db
 
-    async def update_auth_user(
-        self,
-        user_id: int,
-        data: UpdateAuthUser,
-    ) -> AuthUserResponse:
+    async def update_auth_user(self, user_id: int, data: UpdateAuthUser) -> AuthUserResponse:
         u = await fetch_or_404(
             self.db, AuthUser,
             filter_column=AuthUser.id,
