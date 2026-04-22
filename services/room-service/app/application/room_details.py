@@ -7,7 +7,6 @@ from ..domain.models import Room
 from ..domain.schemas import RoomDetailResponse
 from ..infrastructure.repository import get_blind_levels, get_players_in_room
 
-
 async def build_room_detail_response(
     db: AsyncSession,
     room: Room,

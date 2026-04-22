@@ -8,7 +8,6 @@ from .hand_ledger import HandState, LedgerRow, apply_entry, rebuild_hand_state
 
 @dataclass(frozen=True, slots=True)
 class HandStep:
-
     step_number: int
     entry_id: str
     entry_type: str
@@ -18,7 +17,6 @@ class HandStep:
 
 @dataclass(slots=True)
 class ReplayResult:
-
     steps: list[HandStep] = field(default_factory=list)
     final_state: HandState = field(default_factory=HandState)
     entry_count: int = 0

@@ -8,34 +8,29 @@ from .engine.blind_posting import SeatPlayer, post_blinds_and_antes
 
 @dataclass(frozen=True, slots=True)
 class PlayerSetup:
-
     player_id: str
     seat: int
     stack: int
 
 @dataclass(frozen=True, slots=True)
 class BlindSetup:
-
     small: int
     big: int
     ante: int = 0
 
 @dataclass(frozen=True, slots=True)
 class ScriptedAction:
-
     player_id: str
     action: str
     amount: int
 
 @dataclass(frozen=True, slots=True)
 class Expectation:
-
     check_type: str
     args: dict[str, Any] = field(default_factory=dict)
 
 @dataclass(frozen=True, slots=True)
 class ExpectationResult:
-
     passed: bool
     expectation: Expectation
     message: str = ""
@@ -75,7 +70,6 @@ class HandScenario:
 
 @dataclass
 class ScenarioResult:
-
     scenario_name: str = ""
     passed: bool = True
     actions_applied: int = 0

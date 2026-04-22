@@ -7,13 +7,11 @@ from ..engine.side_pots import PlayerContribution, calculate_side_pots
 
 @dataclass(frozen=True, slots=True)
 class WinnerDetail:
-
     player_id: str
     amount: int
 
 @dataclass(frozen=True, slots=True)
 class PotExplanation:
-
     pot_index: int
     pot_label: str
     amount: int
@@ -26,7 +24,6 @@ class PotExplanation:
 
 @dataclass(slots=True)
 class SettlementExplanation:
-
     total_pot: int = 0
     total_awarded: int = 0
     total_unclaimed: int = 0

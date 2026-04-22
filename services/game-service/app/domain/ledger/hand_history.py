@@ -16,7 +16,6 @@ _CORRECTION_TYPES = frozenset({
 
 @dataclass(frozen=True, slots=True)
 class ActionEntry:
-
     entry_id: str
     player_id: str | None
     action_type: str
@@ -25,7 +24,6 @@ class ActionEntry:
 
 @dataclass(slots=True)
 class StreetSummary:
-
     street: str
     actions: list[ActionEntry] = field(default_factory=list)
     pot_at_start: int = 0
@@ -33,14 +31,12 @@ class StreetSummary:
 
 @dataclass(frozen=True, slots=True)
 class PayoutEntry:
-
     entry_id: str
     player_id: str
     amount: int
 
 @dataclass(frozen=True, slots=True)
 class CorrectionEntry:
-
     entry_id: str
     correction_type: str
     player_id: str | None
@@ -50,7 +46,6 @@ class CorrectionEntry:
 
 @dataclass(slots=True)
 class HandTimeline:
-
     round_id: str = ""
     streets: list[StreetSummary] = field(default_factory=list)
     payouts: list[PayoutEntry] = field(default_factory=list)

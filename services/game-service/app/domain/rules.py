@@ -7,7 +7,6 @@ from .constants import Street
 
 @dataclass(frozen=True, slots=True)
 class RulesProfile:
-
     name: str
     betting_structure: str
     forced_bets: str
