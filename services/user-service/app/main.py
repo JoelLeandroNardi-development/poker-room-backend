@@ -4,7 +4,8 @@ import asyncio
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
-from .api.routes import router
+from .api.commands.user_command_routes import user_command_router
+from .api.queries.user_query_routes import user_query_router
 from .infrastructure.config import SERVICE_LOG_PREFIX, SERVICE_NAME
 from .infrastructure.messaging import publisher, RABBIT_URL, EXCHANGE_NAME
 from .infrastructure.outbox_worker import run_outbox_forever, outbox_stats
@@ -39,7 +40,8 @@ async def lifespan(app: FastAPI):
         pass
 
 app = FastAPI(title="User Service", lifespan=lifespan)
-app.include_router(router)
+app.include_router(user_command_router)
+app.include_router(user_query_router)
 
 @app.get("/health")
 async def health():

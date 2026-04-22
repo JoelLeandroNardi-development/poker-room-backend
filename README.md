@@ -273,7 +273,8 @@ Main modules:
 
 | Path | Purpose |
 |---|---|
-| `app/api/routes.py` | User profile endpoints. |
+| `app/api/commands/user_command_routes.py` | User profile create, update, and delete routes. |
+| `app/api/queries/user_query_routes.py` | User profile list and fetch routes. |
 | `app/application/commands/user_command_service.py` | Create, update, delete users. |
 | `app/application/queries/user_query_service.py` | List and fetch users. |
 | `app/domain/models.py` | User profile persistence model. |
