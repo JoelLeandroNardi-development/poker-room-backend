@@ -39,6 +39,7 @@ class ErrorMessage(StrEnum):
     PASSWORD_RESET_REQUESTED = "Password reset requested"
     PASSWORD_RESET_COMPLETE = "Password reset complete"
     INVALID_OR_EXPIRED_RESET_TOKEN = "Invalid or expired reset token"
+    PASSWORD_RESET_EMAIL_FAILED = "Password reset email could not be sent"
 
 class ResponseKey(StrEnum):
     MESSAGE = "message"

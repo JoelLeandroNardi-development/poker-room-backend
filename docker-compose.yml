@@ -77,6 +77,9 @@ services:
     environment:
       AUTH_DB: postgresql+asyncpg://poker:poker@postgres:5432/auth_db
       JWT_SECRET: change-me-in-production
+      PASSWORD_RESET_BASE_URL: http://localhost:3000/reset-password
+      PASSWORD_RESET_EMAIL_BACKEND: console
+      PASSWORD_RESET_INCLUDE_DEBUG_TOKEN: "false"
     ports:
       - "8004:8000"
     depends_on:

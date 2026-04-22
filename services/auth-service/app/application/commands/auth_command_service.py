@@ -12,14 +12,28 @@ from ...domain.schemas import (
     ForgotPasswordRequest, ResetPasswordRequest,
 )
 from ...infrastructure.password_hasher import password_hasher
+from ...infrastructure import config
+from ...infrastructure.password_reset_email import (
+    ConfiguredPasswordResetEmailSender,
+    EmailDeliveryError,
+    PasswordResetEmailSender,
+    build_password_reset_url,
+)
 from ...infrastructure.token_service import (
     JWTError, decode_token, generate_opaque_token, hash_token, issue_token_pair,
 )
 from shared.core.time import ensure_utc, utc_now
 
 class AuthCommandService:
-    def __init__(self, db: AsyncSession):
+    def __init__(
+        self,
+        db: AsyncSession,
+        password_reset_email_sender: PasswordResetEmailSender | None = None,
+    ):
         self.db = db
+        self.password_reset_email_sender = (
+            password_reset_email_sender or ConfiguredPasswordResetEmailSender()
+        )
 
     async def register(self, data: Register) -> dict:
         existing = await self._get_user_by_email(data.email)
@@ -160,15 +174,28 @@ class AuthCommandService:
                 id=str(uuid4()),
                 user_id=user.id,
                 token_hash=hash_token(token),
-                expires_at=now + timedelta(hours=1),
+                expires_at=now + timedelta(minutes=config.PASSWORD_RESET_TOKEN_TTL_MIN),
             )
         )
+
+        try:
+            await self.password_reset_email_sender.send_password_reset(
+                email=user.email,
+                reset_url=build_password_reset_url(token),
+            )
+        except EmailDeliveryError:
+            await self.db.rollback()
+            raise HTTPException(
+                status_code=503,
+                detail=ErrorMessage.PASSWORD_RESET_EMAIL_FAILED,
+            )
+
         await self.db.commit()
 
-        return {
-            ResponseKey.OK: True,
-            ResponseKey.DEBUG_TOKEN: token,
-        }
+        response = {ResponseKey.OK: True}
+        if config.PASSWORD_RESET_INCLUDE_DEBUG_TOKEN:
+            response[ResponseKey.DEBUG_TOKEN] = token
+        return response
 
     async def reset_password(self, data: ResetPasswordRequest) -> dict:
         now = utc_now()

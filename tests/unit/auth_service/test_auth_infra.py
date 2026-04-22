@@ -1,14 +1,25 @@
 from __future__ import annotations
 
 import os
+from urllib.parse import parse_qs, urlsplit
 
 import pytest
 
 os.environ.setdefault("AUTH_DB", "sqlite+aiosqlite:///:memory:")
 os.environ.setdefault("JWT_SECRET", "test-secret-key-for-unit-tests")
 os.environ.setdefault("BCRYPT_ROUNDS", "4")
+os.environ.setdefault("PASSWORD_RESET_BASE_URL", "https://frontend.example/reset-password")
+os.environ.setdefault("PASSWORD_RESET_EMAIL_BACKEND", "disabled")
+os.environ.setdefault("PASSWORD_RESET_INCLUDE_DEBUG_TOKEN", "true")
 
 from tests.service_loader import load_service_app_module
+
+class RecordingResetEmailSender:
+    def __init__(self):
+        self.messages = []
+
+    async def send_password_reset(self, *, email: str, reset_url: str) -> None:
+        self.messages.append({"email": email, "reset_url": reset_url})
 
 @pytest.fixture(scope="module")
 def auth_pw_module():
@@ -155,7 +166,11 @@ class TestPasswordResetFlow:
     @pytest.mark.asyncio
     async def test_forgot_and_reset_password(self, auth_db_module, auth_command_module, auth_schema_module):
         async with auth_db_module.SessionLocal() as db:
-            svc = auth_command_module.AuthCommandService(db)
+            email_sender = RecordingResetEmailSender()
+            svc = auth_command_module.AuthCommandService(
+                db,
+                password_reset_email_sender=email_sender,
+            )
             await svc.register(auth_schema_module.Register(
                 email="reset@example.com",
                 password="old-password",
@@ -166,6 +181,12 @@ class TestPasswordResetFlow:
             )
             assert forgot["ok"] is True
             assert forgot["debug_token"]
+            assert email_sender.messages[0]["email"] == "reset@example.com"
+            assert email_sender.messages[0]["reset_url"].startswith(
+                "https://frontend.example/reset-password?token="
+            )
+            query = parse_qs(urlsplit(email_sender.messages[0]["reset_url"]).query)
+            assert query["token"] == [forgot["debug_token"]]
 
             reset = await svc.reset_password(
                 auth_schema_module.ResetPasswordRequest(
@@ -204,3 +225,23 @@ class TestPasswordResetFlow:
                 await svc.reset_password(payload)
 
         assert exc.value.status_code == 401
+
+    @pytest.mark.asyncio
+    async def test_forgot_password_does_not_send_for_unknown_email(
+        self,
+        auth_db_module,
+        auth_command_module,
+        auth_schema_module,
+    ):
+        async with auth_db_module.SessionLocal() as db:
+            email_sender = RecordingResetEmailSender()
+            svc = auth_command_module.AuthCommandService(
+                db,
+                password_reset_email_sender=email_sender,
+            )
+            forgot = await svc.forgot_password(
+                auth_schema_module.ForgotPasswordRequest(email="missing@example.com")
+            )
+
+        assert forgot == {"ok": True}
+        assert email_sender.messages == []

@@ -31,7 +31,7 @@ The codebase currently supports:
 - Dealer corrections: reverse action, adjust stack, reopen hand, correct payout.
 - Hand replay, hand-state rebuilding, consistency checks, settlement explanation, and action timeline.
 - Table runtime state: pause/resume, duration-based blind clock, session status.
-- Password reset token request and reset flow.
+- Password reset token request, email delivery, and reset flow.
 - Gateway WebSocket endpoint for periodic table-state snapshots.
 - Gateway proxy over all main public routes.
 - Docker Compose environment with PostgreSQL and RabbitMQ.
@@ -40,7 +40,6 @@ Remaining limitations:
 
 - There is no poker hand evaluator yet. The backend tracks betting/settlement but does not decide that a flush beats a straight.
 - WebSocket table-state support currently pushes periodic snapshots from the gateway. It is not yet event-driven from RabbitMQ/outbox messages.
-- Password reset currently returns a `debug_token` from the API. A production email delivery flow is not implemented yet.
 
 ---
 
@@ -214,6 +213,7 @@ Main modules:
 | `app/application/commands/auth_user_command_service.py` | Update/delete auth users. |
 | `app/application/queries/auth_user_query_service.py` | List and fetch auth users. |
 | `app/infrastructure/password_hasher.py` | bcrypt hashing and verification. |
+| `app/infrastructure/password_reset_email.py` | Password reset link creation plus console/SMTP delivery. |
 | `app/infrastructure/token_service.py` | JWT and opaque refresh-token utilities. |
 | `app/domain/models.py` | Auth users, refresh tokens, password reset token model. |
 | `app/application/mappers.py` | Auth ORM model to response schema mapping. |
@@ -226,7 +226,7 @@ Auth endpoints:
 | POST | `/login` | `/login` | Login and receive access/refresh tokens. |
 | POST | `/refresh` | `/refresh` | Rotate refresh token and issue fresh pair. |
 | POST | `/logout` | `/logout` | Revoke a refresh token. |
-| POST | `/forgot-password` | `/forgot-password` | Create a one-hour password reset token. Returns `debug_token` until email delivery exists. |
+| POST | `/forgot-password` | `/forgot-password` | Create a password reset token and deliver a reset link by the configured email backend. |
 | POST | `/reset-password` | `/reset-password` | Use a reset token to set a new password and revoke active sessions. |
 | GET | `/auth-users` | `/auth-users` | List auth users. |
 | GET | `/auth-users/{user_id}` | `/auth-users/{user_id}` | Fetch auth user by id. |
@@ -246,10 +246,18 @@ Shared auth schemas:
 | `LogoutRequest` | `refresh_token`. |
 | `ForgotPasswordRequest` | `email`. |
 | `ResetPasswordRequest` | `token`, `new_password`. |
-| `AuthActionResponse` | `ok`, optional `debug_token`. |
+| `AuthActionResponse` | `ok`, optional `debug_token` only when explicitly enabled for local/test use. |
 | `AuthUserResponse` | `id`, `email`, `roles`, `last_login_at`. |
 | `UpdateAuthUser` | Optional `password`, optional normalized `roles`. |
 | `DeleteAuthUserResponse` | `message`, `user_id`. |
+
+Password reset email behavior:
+
+- `POST /forgot-password` always returns `{ "ok": true }` for unknown emails so the endpoint does not reveal whether an account exists.
+- For existing users, auth-service stores a hashed reset token, builds a reset link from `PASSWORD_RESET_BASE_URL`, and sends it through `PASSWORD_RESET_EMAIL_BACKEND`.
+- Supported reset email backends are `console`, `smtp`, and `disabled`. `console` prints the reset link to service logs for local development. `smtp` sends a plain-text email through the configured SMTP server. `disabled` skips delivery and is intended for tests or explicitly controlled local scenarios.
+- Reset tokens expire after `PASSWORD_RESET_TOKEN_TTL_MIN` minutes and are single-use. Successful reset revokes active refresh sessions.
+- `debug_token` is not returned by default. Set `PASSWORD_RESET_INCLUDE_DEBUG_TOKEN=true` only for local development or automated tests.
 
 ### User Service
 
@@ -815,7 +823,7 @@ Current local verification:
 ```text
 python -m compileall services shared tests
 python -m pytest tests/unit
-399 passed
+400 passed
 ```
 
 Integration tests live under `tests/integration` and are intended for database-backed behavior such as PostgreSQL concurrency.
@@ -824,11 +832,11 @@ Integration tests live under `tests/integration` and are intended for database-b
 
 ## Test Coverage Map
 
-Current unit suite size: 399 tests.
+Current unit suite size: 400 tests.
 
 | Area | What it covers |
 |---|---|
-| Auth infrastructure | Password hashing, JWTs, refresh token helpers. |
+| Auth infrastructure | Password hashing, JWTs, refresh token helpers, password reset email flow. |
 | User CRUD | Create/list/fetch user profile behavior. |
 | Room repository | Room codes, room lookup, players ordered by seat, counts, duplicate names. |
 | Bet validator | Turn rules, fold/check/call/bet/raise/all-in validation, stack and min-raise rules. |
@@ -905,6 +913,17 @@ Key environment variables:
 | `ROOM_DB` | room-service | Async SQLAlchemy URL for room database. |
 | `GAME_DB` | game-service | Async SQLAlchemy URL for game database. |
 | `JWT_SECRET` | auth-service | JWT signing secret. |
+| `PASSWORD_RESET_BASE_URL` | auth-service | Frontend reset-password URL used to build email links. Defaults to `http://localhost:3000/reset-password`. |
+| `PASSWORD_RESET_TOKEN_TTL_MIN` | auth-service | Reset token lifetime in minutes. Defaults to `60`. |
+| `PASSWORD_RESET_EMAIL_BACKEND` | auth-service | Reset email backend: `console`, `smtp`, or `disabled`. Defaults to `console`. |
+| `PASSWORD_RESET_INCLUDE_DEBUG_TOKEN` | auth-service | When true, includes `debug_token` in `/forgot-password` responses. Defaults to false. |
+| `SMTP_HOST` | auth-service | SMTP host required when `PASSWORD_RESET_EMAIL_BACKEND=smtp`. |
+| `SMTP_PORT` | auth-service | SMTP port. Defaults to `587`. |
+| `SMTP_USERNAME` | auth-service | Optional SMTP username. |
+| `SMTP_PASSWORD` | auth-service | Optional SMTP password. |
+| `SMTP_FROM_EMAIL` | auth-service | Sender address for password reset email. Defaults to `no-reply@localhost`. |
+| `SMTP_USE_TLS` | auth-service | Enables SMTP STARTTLS. Defaults to true. |
+| `SMTP_TIMEOUT_SECONDS` | auth-service | SMTP connection timeout. Defaults to `10`. |
 | `RABBIT_URL` | room/game/user services | RabbitMQ connection URL. |
 | `EXCHANGE_NAME` | room/game/user services | Topic exchange name. |
 | `ROOM_SERVICE_URL` | game-service/gateway | Room service base URL. |
@@ -935,7 +954,7 @@ Key environment variables:
 
 The latest code state includes these cleanup changes:
 
-- Room detail response assembly is centralized in `room_detail_to_response()`.
+- Room detail response assembly is centralized in `build_room_detail_response()`.
 - Dealer/SB/BB assignment and rotation are centralized in `domain/engine/positions.py`.
 - Room code generation uses `secrets.choice`.
 - The unused `get_latest_round()` helper was removed from game repository documentation/code.
@@ -948,7 +967,6 @@ The latest code state includes these cleanup changes:
 
 - Add a poker hand evaluator for showdown hand ranking.
 - Replace periodic WebSocket table-state snapshots with event-driven push from domain events.
-- Add production email delivery for password reset tokens.
 - Expose table runtime routes through the gateway if they should be public.
 - Add rate limiting to the gateway.
 - Add metrics and distributed tracing.
