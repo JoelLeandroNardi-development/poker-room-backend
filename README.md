@@ -379,7 +379,12 @@ Main application modules:
 
 | Path | Purpose |
 |---|---|
-| `app/api/routes.py` | Game, round, bet, correction, analysis, table runtime endpoints. |
+| `app/api/commands/game_command_routes.py` | Game lifecycle, round start, street/blind advancement, winner, settlement, and end-game routes. |
+| `app/api/commands/bet_command_routes.py` | Bet placement route. |
+| `app/api/commands/correction_command_routes.py` | Ledger reads plus correction command routes. |
+| `app/api/commands/table_runtime_command_routes.py` | Pause/resume, hand completion, and session-status routes. |
+| `app/api/queries/game_query_routes.py` | Game, round, replay, timeline, settlement explanation, consistency, and table-state query routes. |
+| `app/api/queries/bet_query_routes.py` | Bet list, pot, and player bet summary query routes. |
 | `app/application/commands/game_command_service.py` | Start game/round, resolve hand, advance street/blinds, declare winner, end game. |
 | `app/application/commands/bet_command_service.py` | Place a bet through validation, action pipeline, CAS, idempotency. |
 | `app/application/commands/correction_command_service.py` | Reverse action, adjust stack, reopen hand, correct payout. |

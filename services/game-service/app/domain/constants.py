@@ -72,6 +72,7 @@ class DataKey(StrEnum):
     GAME_ID = "game_id"
     ROOM_ID = "room_id"
     ROUND_ID = "round_id"
+    PLAYER_ID = "player_id"
     ROUND_NUMBER = "round_number"
     DEALER_SEAT = "dealer_seat"
     SMALL_BLIND_SEAT = "small_blind_seat"

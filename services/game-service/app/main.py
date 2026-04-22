@@ -6,7 +6,12 @@ from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 from starlette.requests import Request
 
-from .api.routes import router
+from .api.commands.bet_command_routes import bet_command_router
+from .api.commands.correction_command_routes import correction_command_router
+from .api.commands.game_command_routes import game_command_router
+from .api.commands.table_runtime_command_routes import table_runtime_command_router
+from .api.queries.bet_query_routes import bet_query_router
+from .api.queries.game_query_routes import game_query_router
 from .domain.exceptions import (
     DomainError, DuplicateActionError, IdempotencyConflict,
     NotFound, PlayerNotInHand, StaleStateError,
@@ -51,7 +56,12 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Game Service", lifespan=lifespan)
 app.add_middleware(CorrelationIdMiddleware)
-app.include_router(router)
+app.include_router(bet_command_router)
+app.include_router(correction_command_router)
+app.include_router(game_command_router)
+app.include_router(table_runtime_command_router)
+app.include_router(bet_query_router)
+app.include_router(game_query_router)
 
 @app.exception_handler(DomainError)
 async def _domain_error_handler(_request: Request, exc: DomainError) -> JSONResponse:
