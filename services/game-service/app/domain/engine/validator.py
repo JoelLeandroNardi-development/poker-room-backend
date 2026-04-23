@@ -61,7 +61,6 @@ def validate_bet(
     amount: int,
     rules: RulesProfile = NO_LIMIT_HOLDEM,
 ) -> ValidatedAction:
-
     if ctx.status != RoundStatus.ACTIVE:
         raise RoundNotActive(ErrorMessage.ROUND_NOT_ACTIVE)
 
@@ -147,4 +146,3 @@ def validate_bet(
         return ValidatedAction(action=BetAction.ALL_IN, amount=stack)
 
     raise IllegalAction(f"{ErrorMessage.INVALID_ACTION}: {action}")
-

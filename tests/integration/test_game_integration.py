@@ -618,4 +618,3 @@ class TestReplayOnSettledHand:
         timeline = history_mod.build_hand_timeline("r1", entries)
         assert len(timeline.streets) >= 1
         assert len(timeline.payouts) == 1
-
