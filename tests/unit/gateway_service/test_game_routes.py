@@ -22,6 +22,7 @@ class FakeResponse:
 class FakeGameClient:
     def __init__(self) -> None:
         self.calls: list[tuple[str, str]] = []
+        self.json_payloads: list[tuple[str, dict | None]] = []
 
     async def get(self, path: str, **kwargs) -> FakeResponse:
         self.calls.append(("GET", path))
@@ -47,6 +48,33 @@ class FakeGameClient:
 
     async def post(self, path: str, **kwargs) -> FakeResponse:
         self.calls.append(("POST", path))
+        self.json_payloads.append((path, kwargs.get("json")))
+        if path.endswith("/rounds"):
+            return FakeResponse(
+                status_code=200,
+                payload={
+                    "round_id": "round-1",
+                    "game_id": "game-1",
+                    "round_number": 2,
+                    "dealer_seat": 4,
+                    "small_blind_seat": 5,
+                    "big_blind_seat": 6,
+                    "small_blind_amount": 10,
+                    "big_blind_amount": 20,
+                    "ante_amount": 2,
+                    "status": "ACTIVE",
+                    "pot_amount": 30,
+                    "street": "PRE_FLOP",
+                    "acting_player_id": "p1",
+                    "current_highest_bet": 20,
+                    "minimum_raise_amount": 20,
+                    "is_action_closed": False,
+                    "players": [],
+                    "payouts": [],
+                    "created_at": None,
+                    "completed_at": None,
+                },
+            )
         if path.endswith("/pause"):
             status = "PAUSED"
         elif path.endswith("/resume"):
@@ -99,6 +127,13 @@ async def test_gateway_proxies_game_runtime_routes(gateway_game_routes_module, m
         assert session_status.status_code == 200
         assert session_status.json()["big_blind"] == 20
 
+        started_round = await client.post(
+            "/games/game-1/rounds",
+            json={"started_by_player_id": "p4", "started_by_controller": False},
+        )
+        assert started_round.status_code == 200
+        assert started_round.json()["round_id"] == "round-1"
+
         paused = await client.post("/games/game-1/pause")
         assert paused.status_code == 200
         assert paused.json()["status"] == "PAUSED"
@@ -113,7 +148,12 @@ async def test_gateway_proxies_game_runtime_routes(gateway_game_routes_module, m
 
     assert fake_client.calls == [
         ("GET", "/games/game-1/session-status"),
+        ("POST", "/games/game-1/rounds"),
         ("POST", "/games/game-1/pause"),
         ("POST", "/games/game-1/resume"),
         ("POST", "/games/game-1/record-hand-completed"),
     ]
+    assert fake_client.json_payloads[0] == (
+        "/games/game-1/rounds",
+        {"started_by_player_id": "p4", "started_by_controller": False},
+    )

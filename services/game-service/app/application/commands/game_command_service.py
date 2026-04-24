@@ -17,11 +17,12 @@ from ...domain.events import build_event
 from ...domain.exceptions import (
     AlreadyAtShowdown, GameAlreadyExists, GameNotActive, NotFound,
     PayoutEmpty, PayoutExceedsPot, PayoutMismatch, RoundNotActive,
+    RoundStartNotAllowed,
 )
 from ...domain.models import Game, OutboxEvent, Round, RoundPlayer, RoundPayout
 from ...domain.engine.payout_validation import validate_payouts_against_side_pots
 from ...domain.schemas import (
-    GameResponse, RoundResponse, StartGame, DeclareWinner, DeclareWinnerResponse, ResolveHandRequest, 
+    GameResponse, RoundResponse, StartGame, StartRoundRequest, DeclareWinner, DeclareWinnerResponse, ResolveHandRequest, 
     ResolveHandResponse, AdvanceBlindsResponse, AdvanceStreetResponse, EndGameResponse,
 )
 from ...domain.engine.blind_posting import SeatPlayer, post_blinds_and_antes
@@ -33,6 +34,8 @@ from ...infrastructure.repositories.game_repository import fetch_or_raise, get_a
 from ...infrastructure.repositories.round_repository import get_active_round, count_rounds, get_round_players
 from ...infrastructure.room_config import (
     fetch_room_config_http, load_room_snapshot, save_room_snapshot,
+    mark_room_active_http, mark_room_finished_http,
+    sync_room_snapshot_players_from_round,
 )
 from shared.core.outbox.helpers import add_outbox_event
 from shared.core.db.session import atomic
@@ -77,6 +80,7 @@ class GameCommandService:
             self.db.add(game)
 
             await save_room_snapshot(self.db, game_id, room_config)
+            await mark_room_active_http(data.room_id)
 
             event = build_event(
                 GameEventType.STARTED,
@@ -96,7 +100,7 @@ class GameCommandService:
 
         return game_to_response(game)
 
-    async def start_round(self, game_id: str) -> RoundResponse:
+    async def start_round(self, game_id: str, data: StartRoundRequest) -> RoundResponse:
         game = await fetch_or_raise(
             self.db, Game,
             filter_column=Game.game_id,
@@ -121,6 +125,8 @@ class GameCommandService:
 
         if not current_level:
             raise NotFound(ErrorMessage.NO_BLIND_LEVELS)
+
+        self._require_round_start_authorized(game, room_config, data)
 
         round_id = str(uuid.uuid4())
 
@@ -302,9 +308,6 @@ class GameCommandService:
             detail=ErrorMessage.GAME_NOT_FOUND,
         )
 
-        room_config = await load_room_snapshot(self.db, game_round.game_id)
-        active_seats = room_config.active_seats
-
         payout_summary = [
             {
                 "pot_index": pot.pot_index,
@@ -364,6 +367,12 @@ class GameCommandService:
                 amount=game_round.pot_amount,
             )
 
+            active_seats = await sync_room_snapshot_players_from_round(
+                self.db,
+                game_id=game_round.game_id,
+                round_players=round_players,
+            )
+
             if len(active_seats) >= 2:
                 dealer_seat, sb_seat, bb_seat = self._rotate_positions(
                     active_seats, game.current_dealer_seat
@@ -371,6 +380,8 @@ class GameCommandService:
                 game.current_dealer_seat = dealer_seat
                 game.current_small_blind_seat = sb_seat
                 game.current_big_blind_seat = bb_seat
+            else:
+                game.status = GameStatus.FINISHED
 
             event = build_event(
                 GameEventType.ROUND_COMPLETED,
@@ -383,6 +394,17 @@ class GameCommandService:
                 },
             )
             add_outbox_event(self.db, OutboxEvent, event)
+
+            if game.status == GameStatus.FINISHED:
+                finished_event = build_event(
+                    GameEventType.FINISHED,
+                    {
+                        DataKey.GAME_ID: game.game_id,
+                        DataKey.ROOM_ID: game.room_id,
+                        DataKey.STATUS: GameStatus.FINISHED,
+                    },
+                )
+                add_outbox_event(self.db, OutboxEvent, finished_event)
 
         await self.db.commit()
         await self.db.refresh(game_round)
@@ -561,6 +583,7 @@ class GameCommandService:
 
         async with atomic(self.db):
             game.status = GameStatus.FINISHED
+            await mark_room_finished_http(game.room_id)
 
             event = build_event(
                 GameEventType.FINISHED,
@@ -587,3 +610,22 @@ class GameCommandService:
     @staticmethod
     def _ante_amount(room_config: RoomConfig, blind_level: BlindLevelConfig) -> int:
         return blind_level.ante if room_config.antes_enabled else 0
+
+    @staticmethod
+    def _require_round_start_authorized(
+        game: Game,
+        room_config: RoomConfig,
+        data: StartRoundRequest,
+    ) -> None:
+        if data.started_by_controller:
+            return
+
+        button_seat = game.current_dealer_seat
+        button_player = next(
+            (player for player in room_config.active_players if player.seat_number == button_seat),
+            None,
+        )
+        if button_player and data.started_by_player_id == button_player.player_id:
+            return
+
+        raise RoundStartNotAllowed(ErrorMessage.ROUND_START_NOT_ALLOWED)

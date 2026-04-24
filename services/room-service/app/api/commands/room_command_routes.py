@@ -16,6 +16,14 @@ get_db = make_get_db(SessionLocal)
 async def create_room(data: CreateRoom, db: AsyncSession = Depends(get_db)):
     return await RoomCommandService(db).create_room(data)
 
+@room_command_router.post("/rooms/{room_id}/activate", response_model=RoomResponse)
+async def activate_room(room_id: str, db: AsyncSession = Depends(get_db)):
+    return await RoomCommandService(db).activate_room(room_id)
+
+@room_command_router.post("/rooms/{room_id}/finish", response_model=RoomResponse)
+async def finish_room(room_id: str, db: AsyncSession = Depends(get_db)):
+    return await RoomCommandService(db).finish_room(room_id)
+
 @room_command_router.put("/rooms/{room_id}/blinds", response_model=RoomDetailResponse)
 async def set_blind_structure(room_id: str, data: SetBlindStructure, db: AsyncSession = Depends(get_db)):
     return await RoomCommandService(db).set_blind_structure(room_id, data)

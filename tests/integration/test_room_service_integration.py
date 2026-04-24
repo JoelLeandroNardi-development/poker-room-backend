@@ -159,3 +159,50 @@ async def test_room_service_split_routes_full_room_flow(room_app_modules):
 
         missing = await client.get(f"/rooms/{room_id}")
         assert missing.status_code == 404
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_room_status_routes_block_late_joins(room_app_modules):
+    main_module, _db_module = room_app_modules
+
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=main_module.app),
+        base_url="http://room-service.test",
+    ) as client:
+        create = await client.post(
+            "/rooms",
+            json={
+                "name": "Status Guard",
+                "max_players": 6,
+                "starting_chips": 1000,
+                "antes_enabled": False,
+                "created_by": "host@example.com",
+            },
+        )
+        assert create.status_code == 200
+        room = create.json()
+        room_id = room["room_id"]
+        code = room["code"]
+
+        active = await client.post(f"/rooms/{room_id}/activate")
+        assert active.status_code == 200
+        assert active.json()["status"] == "ACTIVE"
+
+        join_active = await client.post(
+            f"/rooms/join/{code}",
+            json={"player_name": "Late Alice"},
+        )
+        assert join_active.status_code == 400
+        assert join_active.json()["detail"] == "Room is not in WAITING status"
+
+        finished = await client.post(f"/rooms/{room_id}/finish")
+        assert finished.status_code == 200
+        assert finished.json()["status"] == "FINISHED"
+
+        join_finished = await client.post(
+            f"/rooms/join/{code}",
+            json={"player_name": "Late Bob"},
+        )
+        assert join_finished.status_code == 400
+        assert join_finished.json()["detail"] == "Room is not in WAITING status"

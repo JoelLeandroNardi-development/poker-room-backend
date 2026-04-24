@@ -4,15 +4,44 @@ from __future__ import annotations
 import os
 
 import httpx
+from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..domain.constants import ErrorMessage
 from ..domain.exceptions import NotFound
-from ..domain.models import RoomSnapshot, RoomSnapshotBlindLevel, RoomSnapshotPlayer
+from ..domain.models import RoundPlayer, RoomSnapshot, RoomSnapshotBlindLevel, RoomSnapshotPlayer
 from ..domain.integration.room_adapter import BlindLevelConfig, PlayerConfig, RoomConfig
 
 ROOM_SERVICE_URL = os.getenv("ROOM_SERVICE_URL", "http://room-service:8000")
+
+
+async def _post_room_status_update(room_id: str, action: str) -> None:
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.post(f"{ROOM_SERVICE_URL}/rooms/{room_id}/{action}")
+    except httpx.HTTPError as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Failed to {action} room in room-service",
+        ) from exc
+
+    if resp.status_code == 404:
+        raise NotFound(ErrorMessage.ROOM_NOT_FOUND)
+
+    if resp.status_code >= 500:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Failed to {action} room in room-service",
+        )
+
+    if resp.status_code >= 400:
+        try:
+            payload = resp.json()
+        except ValueError:
+            payload = {}
+        detail = payload.get("detail") or resp.text or f"Unable to {action} room"
+        raise HTTPException(status_code=resp.status_code, detail=detail)
 
 async def fetch_room_config_http(room_id: str) -> RoomConfig:
     async with httpx.AsyncClient(timeout=10.0) as client:
@@ -122,6 +151,43 @@ async def load_room_snapshot(db: AsyncSession, game_id: str) -> RoomConfig:
         players=players,
         blind_levels=blind_levels,
     )
+
+
+async def mark_room_active_http(room_id: str) -> None:
+    await _post_room_status_update(room_id, "activate")
+
+
+async def mark_room_finished_http(room_id: str) -> None:
+    await _post_room_status_update(room_id, "finish")
+
+async def sync_room_snapshot_players_from_round(
+    db: AsyncSession,
+    game_id: str,
+    round_players: list[RoundPlayer],
+) -> list[int]:
+    players_res = await db.execute(
+        select(RoomSnapshotPlayer)
+        .where(RoomSnapshotPlayer.game_id == game_id)
+        .order_by(RoomSnapshotPlayer.seat_number.asc())
+    )
+    snapshot_players = players_res.scalars().all()
+    snapshot_by_player_id = {player.player_id: player for player in snapshot_players}
+
+    for round_player in round_players:
+        snapshot_player = snapshot_by_player_id.get(round_player.player_id)
+        if snapshot_player is None:
+            continue
+
+        chip_count = max(round_player.stack_remaining, 0)
+        snapshot_player.chip_count = chip_count
+        snapshot_player.is_active = chip_count > 0
+        snapshot_player.is_eliminated = chip_count <= 0
+
+    return [
+        player.seat_number
+        for player in snapshot_players
+        if player.is_active and not player.is_eliminated and player.chip_count > 0
+    ]
 
 class HttpRoomConfigProvider:
     def __init__(self, db: AsyncSession) -> None:

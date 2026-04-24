@@ -11,15 +11,16 @@ class GameResponse(BaseModel):
     status: str
     current_blind_level: int
     level_started_at: Optional[datetime] = None
-    current_dealer_seat: int
+    current_dealer_seat: int = Field(..., description="Current poker button seat")
     current_small_blind_seat: int
     current_big_blind_seat: int
     hands_played: int = 0
     hands_at_current_level: int = 0
     created_at: Optional[datetime] = None
 
-class StartRound(BaseModel):
-    pass
+class StartRoundRequest(BaseModel):
+    started_by_player_id: Optional[str] = Field(default=None, min_length=1)
+    started_by_controller: bool = False
 
 class RoundPlayerResponse(BaseModel):
     player_id: str
@@ -69,7 +70,7 @@ class RoundResponse(BaseModel):
     round_id: str
     game_id: str
     round_number: int
-    dealer_seat: int
+    dealer_seat: int = Field(..., description="Poker button seat for this round")
     small_blind_seat: int
     big_blind_seat: int
     small_blind_amount: int

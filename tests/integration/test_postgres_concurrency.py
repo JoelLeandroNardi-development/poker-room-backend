@@ -505,7 +505,10 @@ class TestPostgresRoundStart:
                 await session.flush()
 
                 service = command_service_mod.GameCommandService(session)
-                response = await service.start_round(gid)
+                response = await service.start_round(
+                    gid,
+                    command_service_mod.StartRoundRequest(started_by_controller=True),
+                )
 
                 round_row = (
                     await session.execute(

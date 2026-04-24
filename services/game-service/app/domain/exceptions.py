@@ -62,6 +62,9 @@ class GameNotActive(DomainError):
 class GameAlreadyExists(DomainError):
     pass
 
+class RoundStartNotAllowed(DomainError):
+    pass
+
 class NotFound(DomainError):
     pass
 

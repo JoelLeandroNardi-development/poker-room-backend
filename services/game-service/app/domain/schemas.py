@@ -1,5 +1,6 @@
 from shared.schemas.games import (
     StartGame,
+    StartRoundRequest,
     GameResponse,
     RoundResponse,
     RoundPlayerResponse,

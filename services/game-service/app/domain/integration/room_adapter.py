@@ -31,7 +31,10 @@ class RoomConfig:
     @property
     def active_players(self) -> list[PlayerConfig]:
         return sorted(
-            [p for p in self.players if p.is_active and not p.is_eliminated],
+            [
+                p for p in self.players
+                if p.is_active and not p.is_eliminated and p.chip_count > 0
+            ],
             key=lambda p: p.seat_number,
         )
 

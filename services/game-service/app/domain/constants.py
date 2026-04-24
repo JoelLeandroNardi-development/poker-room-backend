@@ -121,6 +121,7 @@ class ErrorMessage(StrEnum):
     CANNOT_REVERSE_CORRECTION = "Cannot reverse a correction entry"
     ROUND_NOT_COMPLETED = "Round must be completed before applying this correction"
     ROUND_ALREADY_ACTIVE = "Round is already active"
+    ROUND_START_NOT_ALLOWED = "Round can only be started by the table controller or the player on the current button seat"
     BET_NOT_FOUND = "Bet not found"
     INVALID_ACTION = "Invalid bet action"
     PLAYER_ALREADY_FOLDED = "Player has already folded this round"

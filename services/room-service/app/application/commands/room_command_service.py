@@ -27,6 +27,66 @@ class RoomCommandService:
     def __init__(self, db: AsyncSession):
         self.db = db
 
+    async def activate_room(self, room_id: str) -> RoomResponse:
+        room = await fetch_or_404(
+            self.db, Room,
+            filter_column=Room.room_id,
+            filter_value=room_id,
+            detail=ErrorMessage.ROOM_NOT_FOUND,
+        )
+
+        if room.status == RoomStatus.ACTIVE:
+            return room_to_response(room)
+
+        if room.status != RoomStatus.WAITING:
+            raise HTTPException(status_code=400, detail=ErrorMessage.ROOM_NOT_WAITING)
+
+        room.status = RoomStatus.ACTIVE
+
+        event = build_event(
+            RoomEventType.ACTIVATED,
+            {
+                DataKey.ROOM_ID: room_id,
+                DataKey.STATUS: RoomStatus.ACTIVE,
+            },
+        )
+        add_outbox_event(self.db, OutboxEvent, event)
+
+        await self.db.commit()
+        await self.db.refresh(room)
+
+        return room_to_response(room)
+
+    async def finish_room(self, room_id: str) -> RoomResponse:
+        room = await fetch_or_404(
+            self.db, Room,
+            filter_column=Room.room_id,
+            filter_value=room_id,
+            detail=ErrorMessage.ROOM_NOT_FOUND,
+        )
+
+        if room.status == RoomStatus.FINISHED:
+            return room_to_response(room)
+
+        if room.status != RoomStatus.ACTIVE:
+            raise HTTPException(status_code=400, detail=ErrorMessage.ROOM_NOT_ACTIVE)
+
+        room.status = RoomStatus.FINISHED
+
+        event = build_event(
+            RoomEventType.FINISHED,
+            {
+                DataKey.ROOM_ID: room_id,
+                DataKey.STATUS: RoomStatus.FINISHED,
+            },
+        )
+        add_outbox_event(self.db, OutboxEvent, event)
+
+        await self.db.commit()
+        await self.db.refresh(room)
+
+        return room_to_response(room)
+
     async def create_room(self, data: CreateRoom) -> RoomResponse:
         room_id = str(uuid.uuid4())
         code = await generate_unique_code(self.db)

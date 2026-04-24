@@ -5,7 +5,7 @@ from fastapi import APIRouter
 from ..clients.service_client import game_client
 from ..utils.proxy import forward_response
 from shared.schemas.games import (
-    StartGame, GameResponse, RoundResponse,
+    StartGame, StartRoundRequest, GameResponse, RoundResponse,
     AdvanceBlindsResponse, EndGameResponse, SessionStatusResponse,
 )
 
@@ -27,8 +27,8 @@ async def get_game_for_room(room_id: str):
     return forward_response(resp)
 
 @router.post("/{game_id}/rounds", response_model=RoundResponse)
-async def start_round(game_id: str):
-    resp = await game_client.post(f"/games/{game_id}/rounds")
+async def start_round(game_id: str, data: StartRoundRequest):
+    resp = await game_client.post(f"/games/{game_id}/rounds", json=data.model_dump())
     return forward_response(resp)
 
 @router.get("/{game_id}/rounds", response_model=list[RoundResponse])

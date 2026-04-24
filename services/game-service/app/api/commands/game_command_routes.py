@@ -3,7 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...application.commands.game_command_service import GameCommandService
 from ...domain.schemas import (
-    StartGame, GameResponse, RoundResponse, DeclareWinner, DeclareWinnerResponse, ResolveHandRequest, 
+    StartGame, StartRoundRequest, GameResponse, RoundResponse, DeclareWinner, DeclareWinnerResponse, ResolveHandRequest, 
     ResolveHandResponse, AdvanceBlindsResponse, AdvanceStreetResponse, EndGameResponse,
 )
 from ...infrastructure.db import SessionLocal
@@ -17,8 +17,8 @@ async def start_game(data: StartGame, db: AsyncSession = Depends(get_db)):
     return await GameCommandService(db).start_game(data)
 
 @game_command_router.post("/games/{game_id}/rounds", response_model=RoundResponse)
-async def start_round(game_id: str, db: AsyncSession = Depends(get_db)):
-    return await GameCommandService(db).start_round(game_id)
+async def start_round(game_id: str, data: StartRoundRequest, db: AsyncSession = Depends(get_db)):
+    return await GameCommandService(db).start_round(game_id, data)
 
 @game_command_router.post("/rounds/{round_id}/resolve", response_model=ResolveHandResponse)
 async def resolve_hand(round_id: str, data: ResolveHandRequest, db: AsyncSession = Depends(get_db)):
