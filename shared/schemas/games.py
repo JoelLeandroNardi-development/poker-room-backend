@@ -114,6 +114,13 @@ class EndGameResponse(BaseModel):
     game_id: str
     status: str
 
+class RecordHandCompletedResponse(BaseModel):
+    game_id: str
+    hands_played: int
+    hands_at_current_level: int
+    blind_level_advanced: bool
+    current_blind_level: int
+
 class ReverseActionRequest(BaseModel):
     original_entry_id: str = Field(..., min_length=1)
     dealer_id: Optional[str] = None

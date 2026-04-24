@@ -5,14 +5,12 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True)
 class SeatPlayer:
-
     player_id: str
     seat_number: int
     stack: int
 
 @dataclass(frozen=True)
 class PostedPlayer:
-
     player_id: str
     seat_number: int
     stack_remaining: int
@@ -22,7 +20,6 @@ class PostedPlayer:
 
 @dataclass(frozen=True)
 class BlindPostingResult:
-
     players: list[PostedPlayer]
     pot_total: int
     current_highest_bet: int

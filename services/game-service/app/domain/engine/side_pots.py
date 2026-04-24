@@ -5,7 +5,6 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True, slots=True)
 class PlayerContribution:
-
     player_id: str
     committed_this_hand: int
     has_folded: bool
@@ -13,7 +12,6 @@ class PlayerContribution:
 
 @dataclass(frozen=True, slots=True)
 class Pot:
-
     pot_index: int
     amount: int
     contributor_player_ids: tuple[str, ...]

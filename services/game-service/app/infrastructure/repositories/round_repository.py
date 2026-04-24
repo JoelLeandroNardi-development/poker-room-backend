@@ -19,6 +19,15 @@ async def count_rounds(db: AsyncSession, game_id: str) -> int:
     )
     return res.scalar_one()
 
+async def count_completed_rounds(db: AsyncSession, game_id: str) -> int:
+    res = await db.execute(
+        select(func.count(Round.id)).where(
+            Round.game_id == game_id,
+            Round.status == RoundStatus.COMPLETED,
+        )
+    )
+    return res.scalar_one()
+
 async def get_rounds_for_game(db: AsyncSession, game_id: str) -> list[Round]:
     res = await db.execute(
         select(Round)

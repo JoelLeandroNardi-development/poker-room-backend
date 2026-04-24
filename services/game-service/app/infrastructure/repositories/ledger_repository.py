@@ -3,6 +3,7 @@ from __future__ import annotations
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ...domain.constants import LedgerEntryType
 from ...domain.models import HandLedgerEntry
 
 async def get_ledger_entries(db: AsyncSession, round_id: str) -> list[HandLedgerEntry]:
@@ -19,3 +20,14 @@ async def get_ledger_entry_by_id(db: AsyncSession, entry_id: str) -> HandLedgerE
         .where(HandLedgerEntry.entry_id == entry_id)
     )
     return res.scalar_one_or_none()
+
+async def has_round_completed_entry(db: AsyncSession, round_id: str) -> bool:
+    res = await db.execute(
+        select(HandLedgerEntry.id)
+        .where(
+            HandLedgerEntry.round_id == round_id,
+            HandLedgerEntry.entry_type == LedgerEntryType.ROUND_COMPLETED,
+        )
+        .limit(1)
+    )
+    return res.scalar_one_or_none() is not None

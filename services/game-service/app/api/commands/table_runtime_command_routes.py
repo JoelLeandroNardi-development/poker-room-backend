@@ -2,22 +2,22 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...application.commands.table_runtime_command_service import TableRuntimeCommandService
-from ...domain.schemas import SessionStatusResponse
+from ...domain.schemas import GameResponse, RecordHandCompletedResponse, SessionStatusResponse
 from ...infrastructure.db import SessionLocal
 from shared.core.db.session import make_get_db
 
 table_runtime_command_router = APIRouter()
 get_db = make_get_db(SessionLocal)
 
-@table_runtime_command_router.post("/games/{game_id}/pause")
+@table_runtime_command_router.post("/games/{game_id}/pause", response_model=GameResponse)
 async def pause_table(game_id: str, db: AsyncSession = Depends(get_db)):
     return await TableRuntimeCommandService(db).pause_table(game_id)
 
-@table_runtime_command_router.post("/games/{game_id}/resume")
+@table_runtime_command_router.post("/games/{game_id}/resume", response_model=GameResponse)
 async def resume_table(game_id: str, db: AsyncSession = Depends(get_db)):
     return await TableRuntimeCommandService(db).resume_table(game_id)
 
-@table_runtime_command_router.post("/games/{game_id}/record-hand-completed")
+@table_runtime_command_router.post("/games/{game_id}/record-hand-completed", response_model=RecordHandCompletedResponse)
 async def record_hand_completed(game_id: str, db: AsyncSession = Depends(get_db)):
     return await TableRuntimeCommandService(db).record_hand_completed(game_id)
 

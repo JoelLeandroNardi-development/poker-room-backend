@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..action_helpers import append_ledger_entry
+from ..hand_completion import apply_hand_completion
 from ..mappers import (
     game_to_response, round_to_response, payout_to_response, round_player_to_response,
 )
@@ -31,6 +32,7 @@ from ...domain.integration.room_adapter import BlindLevelConfig, RoomConfig
 from ...domain.rules import NO_LIMIT_HOLDEM
 from ...domain.engine.street_progression import PlayerSeat, evaluate_street_end
 from ...infrastructure.repositories.game_repository import fetch_or_raise, get_active_game_for_room
+from ...infrastructure.repositories.ledger_repository import has_round_completed_entry
 from ...infrastructure.repositories.round_repository import get_active_round, count_rounds, get_round_players
 from ...infrastructure.room_config import (
     fetch_room_config_http, load_room_snapshot, save_room_snapshot,
@@ -209,7 +211,6 @@ class GameCommandService:
             game_round.pot_amount = posting.pot_total
             game_round.current_highest_bet = posting.current_highest_bet
 
-            # Persist the parent round before adding rows that reference round_id.
             await self.db.flush()
             self.db.add_all(round_players)
 
@@ -307,6 +308,8 @@ class GameCommandService:
             filter_value=game_round.game_id,
             detail=ErrorMessage.GAME_NOT_FOUND,
         )
+        room_config = await load_room_snapshot(self.db, game_round.game_id)
+        already_counted = await has_round_completed_entry(self.db, round_id)
 
         payout_summary = [
             {
@@ -366,6 +369,17 @@ class GameCommandService:
                 player_id=None,
                 amount=game_round.pot_amount,
             )
+
+            if not already_counted:
+                completion = apply_hand_completion(
+                    game,
+                    room_config,
+                    should_count_hand=True,
+                )
+                game.hands_played = completion.hands_played
+                game.hands_at_current_level = completion.hands_at_current_level
+                game.current_blind_level = completion.current_blind_level
+                game.level_started_at = completion.level_started_at
 
             active_seats = await sync_room_snapshot_players_from_round(
                 self.db,

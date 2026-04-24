@@ -6,12 +6,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ...domain.constants import GameStatus, ErrorMessage
 from ...domain.exceptions import GameNotActive
 from ...domain.models import Game
+from ..hand_completion import apply_hand_completion
 from ...domain.engine.table_runtime import (
     BlindClock, SeatStatus, TableRuntime, TableSeat, TableStatus,
 )
 from ...domain.integration.room_adapter import RoomConfig
 from ...infrastructure.logging import get_logger
 from ...infrastructure.repositories.game_repository import fetch_or_raise
+from ...infrastructure.repositories.round_repository import count_completed_rounds
 from ...infrastructure.room_config import load_room_snapshot
 from shared.core.db.session import atomic
 from shared.core.time import ensure_utc, utc_now
@@ -80,7 +82,19 @@ class TableRuntimeCommandService:
             hands_played=game.hands_played,
             blind_level=game.current_blind_level,
         )
-        return {"game_id": game_id, "status": GameStatus.PAUSED}
+        return {
+            "game_id": game.game_id,
+            "room_id": game.room_id,
+            "status": game.status,
+            "current_blind_level": game.current_blind_level,
+            "level_started_at": game.level_started_at,
+            "current_dealer_seat": game.current_dealer_seat,
+            "current_small_blind_seat": game.current_small_blind_seat,
+            "current_big_blind_seat": game.current_big_blind_seat,
+            "hands_played": game.hands_played,
+            "hands_at_current_level": game.hands_at_current_level,
+            "created_at": game.created_at,
+        }
 
     async def resume_table(self, game_id: str) -> dict:
         game, runtime, _room_config = await self._load_runtime(game_id)
@@ -100,57 +114,68 @@ class TableRuntimeCommandService:
             hands_played=game.hands_played,
             blind_level=game.current_blind_level,
         )
-        return {"game_id": game_id, "status": GameStatus.ACTIVE}
+        return {
+            "game_id": game.game_id,
+            "room_id": game.room_id,
+            "status": game.status,
+            "current_blind_level": game.current_blind_level,
+            "level_started_at": game.level_started_at,
+            "current_dealer_seat": game.current_dealer_seat,
+            "current_small_blind_seat": game.current_small_blind_seat,
+            "current_big_blind_seat": game.current_big_blind_seat,
+            "hands_played": game.hands_played,
+            "hands_at_current_level": game.hands_at_current_level,
+            "created_at": game.created_at,
+        }
 
     async def record_hand_completed(self, game_id: str) -> dict:
-        game, runtime, room_config = await self._load_runtime(game_id)
-        runtime.record_hand_completed()
-
-        advanced = False
-        max_level = max((bl.level for bl in room_config.blind_levels), default=1)
-
-        current_bl = room_config.blind_level(game.current_blind_level)
-        seconds_per_level = (
-            current_bl.duration_minutes * 60
-            if current_bl and current_bl.duration_minutes
-            else None
+        game, _runtime, room_config = await self._load_runtime(game_id)
+        completed_rounds = await count_completed_rounds(self.db, game_id)
+        should_count_hand = game.hands_played < completed_rounds
+        completion = apply_hand_completion(
+            game,
+            room_config,
+            should_count_hand=should_count_hand,
         )
 
-        if runtime.blind_clock.should_advance(seconds_per_level=seconds_per_level):
-            if game.current_blind_level < max_level:
-                runtime.blind_clock.advance()
-                advanced = True
-
         async with atomic(self.db):
-            game.hands_played = runtime.hands_played
-            game.hands_at_current_level = runtime.blind_clock.hands_at_level
-            game.current_blind_level = runtime.blind_clock.current_level
-            game.level_started_at = runtime.blind_clock.level_started_at
+            game.hands_played = completion.hands_played
+            game.hands_at_current_level = completion.hands_at_current_level
+            game.current_blind_level = completion.current_blind_level
+            game.level_started_at = completion.level_started_at
 
         await self.db.commit()
 
-        if advanced:
+        if completion.blind_level_advanced:
             logger.info(
                 "blind level advanced",
                 game_id=game_id,
-                new_level=runtime.blind_clock.current_level,
-                hands_played=runtime.hands_played,
+                new_level=completion.current_blind_level,
+                hands_played=completion.hands_played,
             )
-        else:
+        elif should_count_hand:
             logger.info(
                 "hand completed",
                 game_id=game_id,
-                hands_played=runtime.hands_played,
-                hands_at_current_level=runtime.blind_clock.hands_at_level,
-                blind_level=runtime.blind_clock.current_level,
+                hands_played=completion.hands_played,
+                hands_at_current_level=completion.hands_at_current_level,
+                blind_level=completion.current_blind_level,
+            )
+        else:
+            logger.info(
+                "hand completion already synchronized",
+                game_id=game_id,
+                hands_played=completion.hands_played,
+                hands_at_current_level=completion.hands_at_current_level,
+                blind_level=completion.current_blind_level,
             )
 
         return {
             "game_id": game_id,
-            "hands_played": runtime.hands_played,
-            "hands_at_current_level": runtime.blind_clock.hands_at_level,
-            "blind_level_advanced": advanced,
-            "current_blind_level": runtime.blind_clock.current_level,
+            "hands_played": completion.hands_played,
+            "hands_at_current_level": completion.hands_at_current_level,
+            "blind_level_advanced": completion.blind_level_advanced,
+            "current_blind_level": completion.current_blind_level,
         }
 
     async def get_session_status(self, game_id: str) -> dict:

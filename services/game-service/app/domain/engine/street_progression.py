@@ -15,7 +15,6 @@ STREET_ORDER: tuple[str, ...] = (
 
 @dataclass(frozen=True, slots=True)
 class PlayerSeat:
-
     player_id: str
     seat_number: int
     has_folded: bool
@@ -24,7 +23,6 @@ class PlayerSeat:
 
 @dataclass(frozen=True, slots=True)
 class StreetAdvanceResult:
-
     action: str
     next_street: str | None = None
     acting_player_id: str | None = None

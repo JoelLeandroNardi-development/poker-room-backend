@@ -76,30 +76,52 @@ class FakeGameClient:
                 },
             )
         if path.endswith("/pause"):
-            status = "PAUSED"
+            return FakeResponse(
+                status_code=200,
+                payload={
+                    "game_id": "game-1",
+                    "room_id": "room-1",
+                    "status": "PAUSED",
+                    "current_blind_level": 2,
+                    "level_started_at": None,
+                    "current_dealer_seat": 4,
+                    "current_small_blind_seat": 5,
+                    "current_big_blind_seat": 6,
+                    "hands_played": 3,
+                    "hands_at_current_level": 1,
+                    "created_at": None,
+                },
+            )
         elif path.endswith("/resume"):
-            status = "ACTIVE"
+            return FakeResponse(
+                status_code=200,
+                payload={
+                    "game_id": "game-1",
+                    "room_id": "room-1",
+                    "status": "ACTIVE",
+                    "current_blind_level": 2,
+                    "level_started_at": None,
+                    "current_dealer_seat": 4,
+                    "current_small_blind_seat": 5,
+                    "current_big_blind_seat": 6,
+                    "hands_played": 3,
+                    "hands_at_current_level": 1,
+                    "created_at": None,
+                },
+            )
         elif path.endswith("/record-hand-completed"):
-            status = "ACTIVE"
+            return FakeResponse(
+                status_code=200,
+                payload={
+                    "game_id": "game-1",
+                    "hands_played": 4,
+                    "hands_at_current_level": 2,
+                    "blind_level_advanced": False,
+                    "current_blind_level": 2,
+                },
+            )
         else:
             raise AssertionError(f"Unexpected POST path: {path}")
-
-        return FakeResponse(
-            status_code=200,
-            payload={
-                "game_id": "game-1",
-                "room_id": "room-1",
-                "status": status,
-                "current_blind_level": 2,
-                "level_started_at": None,
-                "current_dealer_seat": 4,
-                "current_small_blind_seat": 5,
-                "current_big_blind_seat": 6,
-                "hands_played": 3,
-                "hands_at_current_level": 1,
-                "created_at": None,
-            },
-        )
 
 @pytest.fixture()
 def gateway_game_routes_module():
@@ -145,6 +167,8 @@ async def test_gateway_proxies_game_runtime_routes(gateway_game_routes_module, m
         recorded = await client.post("/games/game-1/record-hand-completed")
         assert recorded.status_code == 200
         assert recorded.json()["game_id"] == "game-1"
+        assert recorded.json()["hands_played"] == 4
+        assert recorded.json()["blind_level_advanced"] is False
 
     assert fake_client.calls == [
         ("GET", "/games/game-1/session-status"),
@@ -157,3 +181,35 @@ async def test_gateway_proxies_game_runtime_routes(gateway_game_routes_module, m
         "/games/game-1/rounds",
         {"started_by_player_id": "p4", "started_by_controller": False},
     )
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_gateway_runtime_response_schemas_are_valid(gateway_game_routes_module, monkeypatch):
+    """Pause/resume must parse as GameResponse; record-hand-completed must parse as RecordHandCompletedResponse."""
+    from shared.schemas.games import GameResponse, RecordHandCompletedResponse
+
+    fake_client = FakeGameClient()
+    monkeypatch.setattr(gateway_game_routes_module, "game_client", fake_client)
+
+    app = FastAPI()
+    app.include_router(gateway_game_routes_module.router)
+
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app),
+        base_url="http://gateway.test",
+    ) as client:
+        paused = await client.post("/games/game-1/pause")
+        assert paused.status_code == 200
+        GameResponse.model_validate(paused.json())
+
+        resumed = await client.post("/games/game-1/resume")
+        assert resumed.status_code == 200
+        GameResponse.model_validate(resumed.json())
+
+        recorded = await client.post("/games/game-1/record-hand-completed")
+        assert recorded.status_code == 200
+        result = RecordHandCompletedResponse.model_validate(recorded.json())
+        assert result.hands_played == 4
+        assert result.current_blind_level == 2
+        assert result.blind_level_advanced is False

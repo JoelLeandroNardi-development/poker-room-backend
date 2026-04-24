@@ -5,7 +5,6 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True, slots=True)
 class ActionSeat:
-
     player_id: str
     seat_number: int
     has_folded: bool
@@ -15,7 +14,6 @@ class ActionSeat:
 
 @dataclass(frozen=True, slots=True)
 class NextActorResult:
-
     player_id: str | None
     seat_number: int | None
     is_round_closed: bool

@@ -191,6 +191,13 @@ async def _load_game(session, models_mod, game_id: str):
     return result.scalar_one()
 
 
+async def _load_round(session, models_mod, round_id: str):
+    result = await session.execute(
+        select(models_mod.Round).where(models_mod.Round.round_id == round_id)
+    )
+    return result.scalar_one()
+
+
 @pytest.mark.integration
 class TestHandToHandStackPersistence:
     @pytest.mark.asyncio
@@ -415,3 +422,228 @@ class TestHandToHandStackPersistence:
                 game_id,
                 command_service_mod.StartRoundRequest(started_by_controller=True),
             )
+
+
+@pytest.mark.integration
+class TestAutoHandCompletionOnResolve:
+    @pytest.mark.asyncio
+    async def test_resolving_hand_increments_hands_played(
+        self, session, models_mod, command_service_mod,
+    ):
+        game_id = str(uuid.uuid4())
+        round_id = str(uuid.uuid4())
+        await _seed_game_snapshot(
+            session,
+            models_mod,
+            game_id=game_id,
+            seats=[("p1", 1, 100), ("p2", 2, 100), ("p3", 3, 100)],
+            positions=(1, 2, 3),
+        )
+        await _seed_round(
+            session,
+            models_mod,
+            game_id=game_id,
+            round_id=round_id,
+            positions=(1, 2, 3),
+            pot_amount=150,
+            players=[
+                ("p1", 1, 50, 50),
+                ("p2", 2, 50, 50),
+                ("p3", 3, 50, 50),
+            ],
+        )
+
+        service = command_service_mod.GameCommandService(session)
+        await service.resolve_hand(
+            round_id,
+            command_service_mod.ResolveHandRequest(
+                payouts=[
+                    {
+                        "pot_index": 0,
+                        "pot_type": "main",
+                        "amount": 150,
+                        "winners": [{"player_id": "p1", "amount": 150}],
+                    }
+                ]
+            ),
+        )
+
+        game = await _load_game(session, models_mod, game_id)
+        assert game.hands_played == 1
+
+    @pytest.mark.asyncio
+    async def test_resolving_hand_increments_hands_at_current_level(
+        self, session, models_mod, command_service_mod,
+    ):
+        game_id = str(uuid.uuid4())
+        round_id = str(uuid.uuid4())
+        await _seed_game_snapshot(
+            session,
+            models_mod,
+            game_id=game_id,
+            seats=[("p1", 1, 100), ("p2", 2, 100), ("p3", 3, 100)],
+            positions=(1, 2, 3),
+        )
+        await _seed_round(
+            session,
+            models_mod,
+            game_id=game_id,
+            round_id=round_id,
+            positions=(1, 2, 3),
+            pot_amount=150,
+            players=[
+                ("p1", 1, 50, 50),
+                ("p2", 2, 50, 50),
+                ("p3", 3, 50, 50),
+            ],
+        )
+
+        service = command_service_mod.GameCommandService(session)
+        await service.resolve_hand(
+            round_id,
+            command_service_mod.ResolveHandRequest(
+                payouts=[
+                    {
+                        "pot_index": 0,
+                        "pot_type": "main",
+                        "amount": 150,
+                        "winners": [{"player_id": "p2", "amount": 150}],
+                    }
+                ]
+            ),
+        )
+
+        game = await _load_game(session, models_mod, game_id)
+        assert game.hands_at_current_level == 1
+
+    @pytest.mark.asyncio
+    async def test_blind_level_auto_advances_when_time_rule_is_due(
+        self, session, models_mod, command_service_mod,
+    ):
+        from datetime import timedelta
+        from shared.core.time import utc_now
+
+        game_id = str(uuid.uuid4())
+        round_id = str(uuid.uuid4())
+        game = await _seed_game_snapshot(
+            session,
+            models_mod,
+            game_id=game_id,
+            seats=[("p1", 1, 100), ("p2", 2, 100), ("p3", 3, 100)],
+            positions=(1, 2, 3),
+        )
+        game.level_started_at = utc_now() - timedelta(minutes=20)
+        await _seed_round(
+            session,
+            models_mod,
+            game_id=game_id,
+            round_id=round_id,
+            positions=(1, 2, 3),
+            pot_amount=150,
+            players=[
+                ("p1", 1, 50, 50),
+                ("p2", 2, 50, 50),
+                ("p3", 3, 50, 50),
+            ],
+        )
+
+        session.add(
+            models_mod.RoomSnapshotBlindLevel(
+                game_id=game_id,
+                level=2,
+                small_blind=10,
+                big_blind=20,
+                ante=0,
+                duration_minutes=15,
+            )
+        )
+        await session.flush()
+
+        service = command_service_mod.GameCommandService(session)
+        await service.resolve_hand(
+            round_id,
+            command_service_mod.ResolveHandRequest(
+                payouts=[
+                    {
+                        "pot_index": 0,
+                        "pot_type": "main",
+                        "amount": 150,
+                        "winners": [{"player_id": "p3", "amount": 150}],
+                    }
+                ]
+            ),
+        )
+
+        updated_game = await _load_game(session, models_mod, game_id)
+        assert updated_game.current_blind_level == 2
+        assert updated_game.hands_at_current_level == 0
+
+    @pytest.mark.asyncio
+    async def test_repeated_settlement_after_reopen_cannot_double_count(
+        self, session, models_mod, command_service_mod,
+    ):
+        game_id = str(uuid.uuid4())
+        round_id = str(uuid.uuid4())
+        await _seed_game_snapshot(
+            session,
+            models_mod,
+            game_id=game_id,
+            seats=[("p1", 1, 100), ("p2", 2, 100), ("p3", 3, 100)],
+            positions=(1, 2, 3),
+        )
+        await _seed_round(
+            session,
+            models_mod,
+            game_id=game_id,
+            round_id=round_id,
+            positions=(1, 2, 3),
+            pot_amount=150,
+            players=[
+                ("p1", 1, 50, 50),
+                ("p2", 2, 50, 50),
+                ("p3", 3, 50, 50),
+            ],
+        )
+
+        service = command_service_mod.GameCommandService(session)
+        await service.resolve_hand(
+            round_id,
+            command_service_mod.ResolveHandRequest(
+                payouts=[
+                    {
+                        "pot_index": 0,
+                        "pot_type": "main",
+                        "amount": 150,
+                        "winners": [{"player_id": "p1", "amount": 150}],
+                    }
+                ]
+            ),
+        )
+
+        correction_mod = load_service_app_module(
+            "game-service", "application/commands/correction_command_service", package_name=PACKAGE,
+        )
+        correction_service = correction_mod.CorrectionCommandService(session)
+        await correction_service.reopen_hand(round_id)
+
+        reopened_round = await _load_round(session, models_mod, round_id)
+        reopened_round.pot_amount = 150
+        await session.flush()
+
+        await service.resolve_hand(
+            round_id,
+            command_service_mod.ResolveHandRequest(
+                payouts=[
+                    {
+                        "pot_index": 0,
+                        "pot_type": "main",
+                        "amount": 150,
+                        "winners": [{"player_id": "p2", "amount": 150}],
+                    }
+                ]
+            ),
+        )
+
+        game = await _load_game(session, models_mod, game_id)
+        assert game.hands_played == 1
+        assert game.hands_at_current_level == 1

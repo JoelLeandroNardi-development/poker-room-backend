@@ -14,6 +14,7 @@ from shared.schemas.games import (
     AdvanceBlindsResponse,
     AdvanceStreetResponse,
     EndGameResponse,
+    RecordHandCompletedResponse,
     ReverseActionRequest,
     AdjustStackRequest,
     ReopenHandRequest,

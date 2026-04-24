@@ -15,7 +15,6 @@ from ..domain.integration.room_adapter import BlindLevelConfig, PlayerConfig, Ro
 
 ROOM_SERVICE_URL = os.getenv("ROOM_SERVICE_URL", "http://room-service:8000")
 
-
 async def _post_room_status_update(room_id: str, action: str) -> None:
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
@@ -152,10 +151,8 @@ async def load_room_snapshot(db: AsyncSession, game_id: str) -> RoomConfig:
         blind_levels=blind_levels,
     )
 
-
 async def mark_room_active_http(room_id: str) -> None:
     await _post_room_status_update(room_id, "activate")
-
 
 async def mark_room_finished_http(room_id: str) -> None:
     await _post_room_status_update(room_id, "finish")
