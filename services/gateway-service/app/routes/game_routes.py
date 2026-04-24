@@ -6,7 +6,7 @@ from ..clients.service_client import game_client
 from ..utils.proxy import forward_response
 from shared.schemas.games import (
     StartGame, GameResponse, RoundResponse,
-    AdvanceBlindsResponse, EndGameResponse,
+    AdvanceBlindsResponse, EndGameResponse, SessionStatusResponse,
 )
 
 router = APIRouter(prefix="/games", tags=["games"])
@@ -49,4 +49,24 @@ async def advance_blinds(game_id: str):
 @router.post("/{game_id}/end", response_model=EndGameResponse)
 async def end_game(game_id: str):
     resp = await game_client.post(f"/games/{game_id}/end")
+    return forward_response(resp)
+
+@router.post("/{game_id}/pause", response_model=GameResponse)
+async def pause_game(game_id: str):
+    resp = await game_client.post(f"/games/{game_id}/pause")
+    return forward_response(resp)
+
+@router.post("/{game_id}/resume", response_model=GameResponse)
+async def resume_game(game_id: str):
+    resp = await game_client.post(f"/games/{game_id}/resume")
+    return forward_response(resp)
+
+@router.post("/{game_id}/record-hand-completed", response_model=GameResponse)
+async def record_hand_completed(game_id: str):
+    resp = await game_client.post(f"/games/{game_id}/record-hand-completed")
+    return forward_response(resp)
+
+@router.get("/{game_id}/session-status", response_model=SessionStatusResponse)
+async def get_session_status(game_id: str):
+    resp = await game_client.get(f"/games/{game_id}/session-status")
     return forward_response(resp)

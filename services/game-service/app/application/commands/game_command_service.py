@@ -195,7 +195,6 @@ class GameCommandService:
                     is_active_in_hand=True,
                 )
                 round_players.append(rp)
-                self.db.add(rp)
 
                 if pp.seat_number == first_to_act_seat:
                     first_acting_player_id = pp.player_id
@@ -203,6 +202,10 @@ class GameCommandService:
             game_round.acting_player_id = first_acting_player_id
             game_round.pot_amount = posting.pot_total
             game_round.current_highest_bet = posting.current_highest_bet
+
+            # Persist the parent round before adding rows that reference round_id.
+            await self.db.flush()
+            self.db.add_all(round_players)
 
             for pp in posting.players:
                 if pp.committed_this_hand <= 0:

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import uuid
 from contextlib import asynccontextmanager
 
@@ -61,4 +62,41 @@ async def health():
         "status": "ok",
         "service": SERVICE_NAME,
         "table_state_events_enabled": table_state_event_consumer.enabled,
+    }
+
+@app.get("/health/downstream")
+async def downstream_health():
+    services = {
+        "auth-service": auth_client,
+        "user-service": user_client,
+        "room-service": room_client,
+        "game-service": game_client,
+    }
+
+    async def fetch_health(name: str, client):
+        try:
+            response = await client.get("/health")
+            payload = response.json()
+            return name, {
+                "reachable": response.status_code < 500,
+                "status_code": response.status_code,
+                "body": payload,
+            }
+        except Exception as exc:
+            return name, {
+                "reachable": False,
+                "status_code": None,
+                "body": {"detail": str(exc)},
+            }
+
+    results = dict(
+        await asyncio.gather(
+            *(fetch_health(name, client) for name, client in services.items())
+        )
+    )
+    overall_ok = all(result["reachable"] for result in results.values())
+    return {
+        "status": "ok" if overall_ok else "degraded",
+        "service": SERVICE_NAME,
+        "services": results,
     }

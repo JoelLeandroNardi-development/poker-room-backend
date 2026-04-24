@@ -42,8 +42,6 @@ services:
     environment:
       <<: *common-env
       ROOM_DB: postgresql+asyncpg://poker:poker@postgres:5432/room_db
-    ports:
-      - "8001:8000"
     depends_on:
       postgres:
         condition: service_healthy
@@ -59,8 +57,6 @@ services:
       <<: *common-env
       GAME_DB: postgresql+asyncpg://poker:poker@postgres:5432/game_db
       ROOM_SERVICE_URL: http://room-service:8000
-    ports:
-      - "8002:8000"
     depends_on:
       postgres:
         condition: service_healthy
@@ -80,8 +76,6 @@ services:
       PASSWORD_RESET_BASE_URL: http://localhost:3000/reset-password
       PASSWORD_RESET_EMAIL_BACKEND: console
       PASSWORD_RESET_INCLUDE_DEBUG_TOKEN: "false"
-    ports:
-      - "8004:8000"
     depends_on:
       postgres:
         condition: service_healthy
@@ -94,8 +88,6 @@ services:
     environment:
       <<: *common-env
       USER_DB: postgresql+asyncpg://poker:poker@postgres:5432/user_db
-    ports:
-      - "8005:8000"
     depends_on:
       postgres:
         condition: service_healthy

@@ -97,6 +97,12 @@ def db_module(models_mod):
     )
 
 @pytest.fixture(scope="module")
+def command_service_mod():
+    return load_service_app_module(
+        "game-service", "application/commands/game_command_service", package_name=PACKAGE,
+    )
+
+@pytest.fixture(scope="module")
 async def pg_engine(db_module):
     from sqlalchemy.ext.asyncio import create_async_engine
 
@@ -430,6 +436,101 @@ class TestPostgresRuntimePersistence:
         assert reloaded.current_blind_level == 2
         assert reloaded.hands_at_current_level == 0
         assert reloaded.hands_played == 10
+
+@requires_postgres
+@pytest.mark.postgres
+class TestPostgresRoundStart:
+    @pytest.mark.asyncio
+    async def test_start_round_persists_round_before_ledger_entries(
+        self, db_module, models_mod, command_service_mod,
+    ):
+        from sqlalchemy import select
+        from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+
+        gid = str(uuid.uuid4())
+        engine = create_async_engine(PG_URL, echo=False)
+
+        try:
+            async with engine.begin() as conn:
+                await conn.run_sync(db_module.Base.metadata.create_all)
+
+            Session = async_sessionmaker(engine, expire_on_commit=False)
+            async with Session() as session:
+                game = _make_game(
+                    models_mod,
+                    game_id=gid,
+                    current_dealer_seat=1,
+                    current_small_blind_seat=1,
+                    current_big_blind_seat=2,
+                )
+                snapshot = models_mod.RoomSnapshot(
+                    game_id=gid,
+                    room_id=game.room_id,
+                    starting_dealer_seat=1,
+                    antes_enabled=False,
+                )
+                snapshot_players = [
+                    models_mod.RoomSnapshotPlayer(
+                        game_id=gid,
+                        player_id="p1",
+                        seat_number=1,
+                        chip_count=200,
+                        is_active=True,
+                        is_eliminated=False,
+                    ),
+                    models_mod.RoomSnapshotPlayer(
+                        game_id=gid,
+                        player_id="p2",
+                        seat_number=2,
+                        chip_count=200,
+                        is_active=True,
+                        is_eliminated=False,
+                    ),
+                ]
+                blind_levels = [
+                    models_mod.RoomSnapshotBlindLevel(
+                        game_id=gid,
+                        level=1,
+                        small_blind=5,
+                        big_blind=10,
+                        ante=0,
+                        duration_minutes=15,
+                    )
+                ]
+
+                session.add(game)
+                session.add(snapshot)
+                session.add_all(snapshot_players)
+                session.add_all(blind_levels)
+                await session.flush()
+
+                service = command_service_mod.GameCommandService(session)
+                response = await service.start_round(gid)
+
+                round_row = (
+                    await session.execute(
+                        select(models_mod.Round).where(models_mod.Round.round_id == response.round_id)
+                    )
+                ).scalar_one()
+                ledger_rows = (
+                    await session.execute(
+                        select(models_mod.HandLedgerEntry)
+                        .where(models_mod.HandLedgerEntry.round_id == response.round_id)
+                    )
+                ).scalars().all()
+
+                assert round_row.round_id == response.round_id
+                assert round_row.pot_amount == 15
+                assert len(ledger_rows) == 2
+                assert {
+                    (row.entry_type, row.player_id, row.amount)
+                    for row in ledger_rows
+                } == {
+                    ("BLIND_POSTED", "p1", 5),
+                    ("BLIND_POSTED", "p2", 10),
+                }
+        finally:
+            await engine.dispose()
 
 async def fetch_game_row(session, models_mod, game_id):
     from sqlalchemy import select
